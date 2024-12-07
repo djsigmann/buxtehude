@@ -353,6 +353,8 @@ bool Server::IPServer(short port)
 
     if (INADDR_ANY) addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
+    if (!SetupEvents()) return false;
+
     // Passing -1 as the backlog allows libevent to try select an optimal backlog number.
     ip_listener = evconnlistener_new_bind(ebase, ConnectionCallback, &callback_data,
         LEV_OPT_REUSEABLE | LEV_OPT_CLOSE_ON_FREE, -1, (sockaddr*)&addr, sizeof(addr));
