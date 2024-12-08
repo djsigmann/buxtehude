@@ -7,6 +7,7 @@
 #include <thread>
 #include <type_traits>
 #include <memory>
+#include <functional>
 
 #include <fmt/core.h>
 
@@ -95,7 +96,7 @@ struct ClientPreferences
     MessageFormat format = JSON;
 };
 
-using Handler = void (*)(Client&, const Message&);
+using Handler = std::function<void(Client&, const Message&)>;
 using LogCallback = void (*)(LogLevel, const std::string&);
 using SignalHandler = void (*)(int);
 
