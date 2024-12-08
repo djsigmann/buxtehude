@@ -668,18 +668,17 @@ Client::~Client()
     Close();
 }
 
-Client::Client(Server& server, const std::string& name) : atype(INTERNAL)
+Client::Client(Server& server, const std::string& name)
 {
     InternalConnect(server, name);
 }
 
-Client::Client(const std::string& path, const std::string& name) : atype(UNIX)
+Client::Client(const std::string& path, const std::string& name)
 {
     UnixConnect(path, name);
 }
 
 Client::Client(const std::string& hostname, short port, const std::string& name)
-    : teamname(name), atype(INTERNET)
 {
     IPConnect(hostname, port, name);
 }
@@ -718,6 +717,7 @@ bool Client::IPConnect(const std::string& hostname, short port,
     if (!SetupEvents()) return false;
 
     teamname = name;
+    atype = INTERNET;
 
     Handshake();
 
@@ -746,6 +746,7 @@ bool Client::UnixConnect(const std::string& path, const std::string& name)
     if (!SetupEvents()) return false;
 
     teamname = name;
+    atype = UNIX;
 
     Handshake();
 
@@ -760,6 +761,7 @@ bool Client::InternalConnect(Server& server, const std::string& name)
     setup = true;
 
     teamname = name;
+    atype = INTERNAL;
 
     Handshake();
 
