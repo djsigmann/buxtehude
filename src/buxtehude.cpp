@@ -228,6 +228,9 @@ void ClientHandle::Write(const Message& msg)
 
 void ClientHandle::Error(const std::string& errstr)
 {
+    if (time(nullptr) - last_error < 1) return;
+    last_error = time(nullptr);
+
     Write({ .type = BUXTEHUDE_ERROR, .content = errstr });
     if (!handshaken) Disconnect("Failed handshake");
 }

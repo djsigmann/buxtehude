@@ -20,6 +20,8 @@
 #include <netdb.h>
 #include <unistd.h>
 
+#include <ctime>
+
 #include <event2/event.h>
 #include <event2/listener.h>
 
@@ -128,7 +130,7 @@ public:
     std::pair<bool, Message> Read();
 private:
     Stream stream; // Only for UNIX/INTERNET
-
+    std::time_t last_error = 0;
 public:
     std::vector<std::string> unavailable;
     std::string teamname = "$$unauthorised";
