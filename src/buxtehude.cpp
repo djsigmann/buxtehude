@@ -294,7 +294,7 @@ std::pair<bool, Message> ClientHandle::Read()
     stream.Delete(stream[2]);
     stream.Reset();
 
-    return { success, msg };
+    return std::make_pair(success, std::move(msg));
 }
 
 // Server
