@@ -20,27 +20,27 @@ namespace buxtehude
 
 // Constants
 
-const static timeval DEFAULT_TIMEOUT = { 60 , 0 }; // 60s
+const timeval DEFAULT_TIMEOUT = { 60 , 0 }; // 60s
 
 // Validation tests
 
-const static ValidationPair VERSION_CHECK =
+const ValidationPair VERSION_CHECK =
     { "/version"_json_pointer, predicates::GreaterEq<BUXTEHUDE_MINIMUM_COMPATIBLE> };
 
-const static ValidationSeries VALIDATE_HANDSHAKE_SERVERSIDE = {
+const ValidationSeries VALIDATE_HANDSHAKE_SERVERSIDE = {
     { "/teamname"_json_pointer, predicates::NotEmpty },
     { "/format"_json_pointer, predicates::Matches({ JSON, MSGPACK }) },
     VERSION_CHECK
 };
 
-const static ValidationSeries VALIDATE_HANDSHAKE_CLIENTSIDE = { VERSION_CHECK };
+const ValidationSeries VALIDATE_HANDSHAKE_CLIENTSIDE = { VERSION_CHECK };
 
-const static ValidationSeries VALIDATE_AVAILABLE = {
+const ValidationSeries VALIDATE_AVAILABLE = {
     { "/type"_json_pointer, predicates::NotEmpty },
     { "/available"_json_pointer, predicates::IsBool }
 };
 
-const static ValidationSeries VALIDATE_SERVER_MESSAGE = {
+const ValidationSeries VALIDATE_SERVER_MESSAGE = {
     { ""_json_pointer, predicates::NotEmpty }
 };
 
