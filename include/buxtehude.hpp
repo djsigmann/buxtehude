@@ -231,7 +231,7 @@ public:
     void Handshake();
     void SetAvailable(const std::string& type, bool available);
 
-    void AddHandler(const std::string& type, Handler h);
+    void AddHandler(const std::string& type, Handler&& h);
     void EraseHandler(const std::string& type);
     void ClearHandlers();
 

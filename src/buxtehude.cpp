@@ -835,9 +835,9 @@ void Client::HandleMessage(const Message& msg)
 
 // Handlers
 
-void Client::AddHandler(const std::string& type, Handler h)
+void Client::AddHandler(const std::string& type, Handler&& h)
 {
-    handlers.emplace(type, h);
+    handlers.emplace(type, std::forward<Handler>(h));
 }
 
 void Client::EraseHandler(const std::string& type) { handlers.erase(type); }
