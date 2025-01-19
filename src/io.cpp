@@ -6,105 +6,75 @@ namespace buxtehude {
 
 // Field
 
-Field::~Field() { if (data) free(data); }
-
 Field& Field::operator[](int offset)
 {
-    Field* f;
+    FieldIterator iter = self_iterator;
     if (offset < 0)
-        for (f = this; f && offset; f = f->prev) ++offset;
+        for (; offset < 0; ++offset) --iter;
     else
-        for (f = this; f && offset; f = f->next) --offset;
+        for (; offset > 0; --offset) ++iter;
 
-    return *f;
-}
-
-// FieldList
-
-FieldList::~FieldList()
-{
-    Field* p, *next;
-    for (p = head; p; p = next) {
-        next = p->next;
-        delete p;
-    }
-}
-
-void FieldList::Append(Field* f)
-{
-    Field* poi;
-    for (poi = head; poi; poi = poi->next) if (!poi->next) break;
-
-    if (!poi) {
-        head = f;
-        head->next = nullptr;
-        head->prev = nullptr;
-    } else {
-        poi->next = f;
-        f->prev = poi;
-        f->next = nullptr;
-    }
-}
-
-void FieldList::Remove(Field* f)
-{
-    Field* por;
-    for (por = head; por && por != f; por = por->next);
-
-    if (!por) return;
-    if (por->prev) por->prev->next = por->next;
-    if (por->next) por->next->prev = por->prev;
+    return *iter;
 }
 
 // Stream
 
 Stream::Stream(FILE* f) : file(f) {}
 
-Stream& Stream::Then(const Callback& cb)
+Stream& Stream::Then(Callback&& cb)
 {
-    Field* last;
-    for (last = fields.head; last->next; last = last->next);
-
-    last->cb = cb;
+    fields.rbegin()->cb = std::move(cb);
 
     return *this;
 }
 
-void Stream::Finally(const Callback& cb) { finally = cb; }
+void Stream::Finally(Callback&& cb) { finally = std::move(cb); }
 
 void Stream::Delete(Field& f)
 {
-    fields.Remove(&f);
-    deleted.Append(&f);
+    FieldIterator iter_to_erase = f.self_iterator;
+    deleted.emplace_back(std::move(f));
+    fields.erase(iter_to_erase);
 }
 
 bool Stream::Read()
 {
     done = false;
     while (true) {
-        if (!current) { current = fields.head; }
+        if (fields.empty()) {
+            status = STREAM_OKAY;
+            return true;
+        }
+
+        if (current == fields.end()) current = fields.begin();
         size_t expected = current->length - data_offset;
 
-        size_t bytes = fread((uint8_t*)current->data + data_offset, 1, expected, file);
+        // Evil writing to vector through the data pointer, but we
+        // don't care about vector::size() anyways. cppreference says data()
+        // "may or may not" return nullptr. I think reserve() should guarantee
+        // a valid data pointer given no allocation failure.
+        size_t bytes_read = fread((uint8_t*)current->data.data() + data_offset, 1,
+                                  expected, file);
 
         if (feof(file)) status = REACHED_EOF;
         else status = STREAM_OKAY;
 
-        data_offset += bytes;
+        data_offset += bytes_read;
         if (data_offset < current->length) return false;
 
         data_offset = 0;
-        Field* old_c = current;
+        auto old_current = current;
         if (current->cb) current->cb(*this, *current);
 
-        if (!current) continue; // Reset
+        if (current == fields.end()) continue; // The stream has been reset
 
-        Field* next = current == old_c ? current->next : old_c;
-        if (!next) { // Reached the end
-            if (finally) finally(*this, *current);
+        if (current == old_current) ++current;
+
+        if (current == fields.end()) { // Reached the end
+            if (finally) finally(*this, *fields.rbegin());
             done = true;
             return true;
-        } else current = next;
+        }
     }
 
     return false;
@@ -114,10 +84,18 @@ bool Stream::Done() { return done; }
 
 StreamStatus Stream::Status() { return status; }
 
-void Stream::Reset() { current = nullptr; }
+void Stream::Reset() { current = fields.end(); }
 
-void Stream::Rewind(int offset) { current = &(*current)[-offset]; }
+void Stream::Rewind(int offset)
+{
+    for (; offset > 0; --offset) --current;
+}
 
-Field& Stream::operator[](int offset) { return (*fields.head)[offset]; }
+Field& Stream::operator[](int offset)
+{
+    FieldIterator iter = fields.begin();
+    for (; offset > 0; --offset) ++iter;
+    return *iter;
+}
 
 }

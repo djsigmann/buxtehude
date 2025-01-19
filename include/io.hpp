@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <functional>
 #include <tuple>
+#include <list>
 
 namespace buxtehude {
 
@@ -10,49 +11,37 @@ struct Field;
 class Stream;
 
 using Callback = std::function<void(Stream&, Field&)>;
+using FieldIterator = std::list<Field>::iterator;
 
 enum StreamStatus
 {
     REACHED_EOF, STREAM_OKAY
 };
 
-// Owns the data pointed to by `data`
 struct Field
 {
-    Field* prev = nullptr, *next = nullptr;
-    void* data = nullptr;
-    size_t length, capacity;
+    std::vector<uint8_t> data;
+    size_t length;
+    FieldIterator self_iterator;
     Callback cb;
 
+    Field(size_t length) : length(length) { data.reserve(length); }
+
     template<typename T>
-    T Get() { return *(T*)data; }
+    T Get() { return *(T*) data.data(); }
 
     template<typename T>
     std::pair<const T*, size_t> GetPtr()
     {
-        return { (const T*)data, length };
+        return { (const T*) data.data(), length };
     }
 
     std::string_view GetView()
     {
-        return { (const char*) data, length };
+        return { (const char*) data.data(), length };
     }
 
     Field& operator[](int offset);
-
-    ~Field();
-};
-
-// Owns the Field pointers
-struct FieldList
-{
-    Field* head = nullptr;
-
-    FieldList() = default;
-    ~FieldList();
-
-    void Append(Field* f);
-    void Remove(Field* f);
 };
 
 class Stream
@@ -64,31 +53,33 @@ public:
     template<typename T=void>
     Stream& Await(size_t len=sizeof(T))
     {
-        Field* f;
-        if (!deleted.head) {
-            f = new Field;
-            f->data = malloc(len);
-            f->capacity = len;
+        FieldIterator iter = fields.emplace(fields.end(), len);
+        Field& new_field = *iter;
+        new_field.self_iterator = iter;
+
+        if (deleted.empty()) {
+            new_field.data.reserve(len);
         } else {
-            for (f = deleted.head; f->next; f = f->next)
-                if (f->capacity >= len) break;
+            auto reusable = std::find_if(deleted.begin(), deleted.end(),
+                [len] (const Field& f) {
+                    return f.data.capacity() >= len;
+                }
+            );
 
-            if (f->capacity < len) {
-                f->data = realloc(f->data, len);
-                f->capacity = len;
+            if (reusable == deleted.end()) {
+                new_field.data.reserve(len);
+                deleted.erase(deleted.begin());
+            } else {
+                new_field.data = std::move(reusable->data);
+                deleted.erase(reusable);
             }
-            deleted.Remove(f);
         }
-
-        f->cb = {};
-        f->length = len;
-        fields.Append(f);
 
         return *this;
     }
 
-    Stream& Then(const Callback& cb);
-    void Finally(const Callback& cb);
+    Stream& Then(Callback&& cb);
+    void Finally(Callback&& cb);
     void Delete(Field& f);
 
     bool Read();
@@ -103,8 +94,8 @@ public:
 private:
     Callback finally;
 
-    FieldList fields, deleted;
-    Field* current = nullptr;
+    std::list<Field> fields, deleted;
+    FieldIterator current = fields.end();
     size_t data_offset = 0;
     StreamStatus status = STREAM_OKAY;
     bool done = false;
