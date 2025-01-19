@@ -9,6 +9,7 @@
 #include <memory>
 #include <functional>
 #include <string_view>
+#include <optional>
 
 #include <fmt/core.h>
 
@@ -128,7 +129,7 @@ public:
     bool Available(const std::string& type);
 
     // Try to read a message from the socket - only for INTERNET/UNIX
-    std::pair<bool, Message> Read();
+    std::optional<Message> Read();
 private:
     Stream stream; // Only for UNIX/INTERNET
     std::time_t last_error = 0;

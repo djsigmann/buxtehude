@@ -269,21 +269,21 @@ bool ClientHandle::Available(const std::string& type)
 
 // ClientHandle functions specific to stream-based connections
 
-std::pair<bool, Message> ClientHandle::Read()
+std::optional<Message> ClientHandle::Read()
 {
     if (!stream.Read()) {
         if (stream.Status() == REACHED_EOF) Disconnect();
-        return { false, Message {} };
+        return {};
     }
 
     std::string_view data = stream[2].GetView();
-    bool success = false;
 
-    Message msg;
+    // Neither of these change the data on their own, data is still safe to use
+    stream.Delete(stream[2]);
+    stream.Reset();
 
     try {
-        msg = Message::Deserialise((MessageFormat)stream[0].Get<char>(), data);
-        success = true;
+        return { Message::Deserialise((MessageFormat)stream[0].Get<char>(), data) };
     } catch (const json::parse_error& e) {
         std::string error = fmt::format("Error parsing message from {}: {}", teamname,
             e.what());
@@ -291,10 +291,7 @@ std::pair<bool, Message> ClientHandle::Read()
         Error(error);
     }
 
-    stream.Delete(stream[2]);
-    stream.Reset();
-
-    return std::make_pair(success, std::move(msg));
+    return {};
 }
 
 // Server
@@ -465,8 +462,8 @@ void Server::Receive(Client& cl, const Message& msg)
 
 void Server::Serve(ClientHandle* ch)
 {
-    auto [success, message] = ch->Read();
-    if (success) HandleMessage(ch, std::move(message));
+    std::optional<Message> message = ch->Read();
+    if (message) HandleMessage(ch, std::move(message.value()));
 
     if (!ch->connected) {
         std::string teamname = std::move(ch->teamname);
