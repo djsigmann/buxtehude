@@ -150,13 +150,13 @@ std::string Message::Serialise(MessageFormat f) const
     }
 }
 
-Message Message::Deserialise(MessageFormat f, const char* data, size_t len)
+Message Message::Deserialise(MessageFormat f, std::string_view data)
 {
     switch (f) {
     case JSON:
-        return json::parse(data, data + len).get<Message>();
+        return json::parse(data).get<Message>();
     case MSGPACK:
-        return json::from_msgpack(data, data + len).get<Message>();
+        return json::from_msgpack(data).get<Message>();
     }
 }
 
@@ -276,13 +276,13 @@ std::pair<bool, Message> ClientHandle::Read()
         return { false, Message {} };
     }
 
-    auto [data, size] = stream[2].GetPtr<char>();
+    std::string_view data = stream[2].GetView();
     bool success = false;
 
     Message msg;
 
     try {
-        msg = Message::Deserialise((MessageFormat)stream[0].Get<char>(), data, size);
+        msg = Message::Deserialise((MessageFormat)stream[0].Get<char>(), data);
         success = true;
     } catch (const json::parse_error& e) {
         std::string error = fmt::format("Error parsing message from {}: {}", teamname,
@@ -948,11 +948,11 @@ void Client::Read()
         return;
     }
 
-    auto [data, size] = stream[2].GetPtr<char>();
+    std::string_view data = stream[2].GetView();
 
     try {
         Message message = Message::Deserialise((MessageFormat)stream[0].Get<char>(),
-            data, size);
+            data);
         HandleMessage(message);
     } catch (const json::parse_error& e) {
         std::string error = fmt::format("Error parsing message: {}", e.what());

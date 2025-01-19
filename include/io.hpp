@@ -33,6 +33,11 @@ struct Field
         return { (const T*)data, length };
     }
 
+    std::string_view GetView()
+    {
+        return { (const char*) data, length };
+    }
+
     Field& operator[](int offset);
 
     ~Field();

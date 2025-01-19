@@ -8,6 +8,7 @@
 #include <type_traits>
 #include <memory>
 #include <functional>
+#include <string_view>
 
 #include <fmt/core.h>
 
@@ -86,7 +87,7 @@ struct Message
     bool only_first = false;
 
     std::string Serialise(MessageFormat f) const;
-    static Message Deserialise(MessageFormat f, const char* data, size_t size);
+    static Message Deserialise(MessageFormat f, std::string_view data);
     static bool WriteToStream(FILE* stream, const Message& m, MessageFormat f);
 };
 
