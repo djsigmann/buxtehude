@@ -2,7 +2,8 @@
 
 #include <cstdio>
 
-namespace buxtehude {
+namespace buxtehude
+{
 
 // Field
 

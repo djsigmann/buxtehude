@@ -52,7 +52,7 @@ enum EqualityType
     EQUAL, LESS, GREATER, LESS_EQ, GREATER_EQ
 };
 
-template<EqualityType eq, auto cmp> requires std::integral<decltype(cmp)>
+template<EqualityType eq, auto cmp>
 inline const Predicate IntegralCompare = [] (const json& j) -> bool
 {
     switch (eq) {

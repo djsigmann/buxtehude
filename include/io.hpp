@@ -5,7 +5,8 @@
 #include <tuple>
 #include <list>
 
-namespace buxtehude {
+namespace buxtehude
+{
 
 struct Field;
 class Stream;

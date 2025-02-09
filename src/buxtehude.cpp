@@ -65,7 +65,7 @@ void from_json(const json& j, Message& msg)
 
 // Logging & Library initialisation
 
-void DefaultLog(LogLevel l, const std::string& message)
+void DefaultLog(LogLevel l, std::string_view message)
 {
     const static char* LEVEL_NAMES[] = { "DEBUG", "INFO", "WARNING", "SEVERE" };
     fmt::print("[{}] {}\n", LEVEL_NAMES[l], message);
@@ -173,7 +173,7 @@ bool Message::WriteToStream(FILE* stream, const Message& message, MessageFormat 
 
 // ClientHandle constructors & destructor
 
-ClientHandle::ClientHandle(Client& iclient, const std::string& teamname)
+ClientHandle::ClientHandle(Client& iclient, std::string_view teamname)
     : client_ptr(&iclient), teamname(teamname), atype(INTERNAL), connected(true)
 {}
 
@@ -226,7 +226,7 @@ void ClientHandle::Write(const Message& msg)
         Disconnect_NoWrite();
 }
 
-void ClientHandle::Error(const std::string& errstr)
+void ClientHandle::Error(std::string_view errstr)
 {
     if (time(nullptr) - last_error < 1) return;
     last_error = time(nullptr);
@@ -235,7 +235,7 @@ void ClientHandle::Error(const std::string& errstr)
     if (!handshaken) Disconnect("Failed handshake");
 }
 
-void ClientHandle::Disconnect(const std::string& reason)
+void ClientHandle::Disconnect(std::string_view reason)
 {
     if (!connected) return;
     Write({ .type = BUXTEHUDE_DISCONNECT, .content = {
@@ -262,7 +262,7 @@ void ClientHandle::Disconnect_NoWrite()
     connected = false;
 }
 
-bool ClientHandle::Available(const std::string& type)
+bool ClientHandle::Available(std::string_view type)
 {
     return std::find(unavailable.begin(), unavailable.end(), type) == unavailable.end();
 }
@@ -297,7 +297,7 @@ std::optional<Message> ClientHandle::Read()
 // Server
 // Server constructors & destructor
 
-Server::Server(const std::string& path)
+Server::Server(std::string_view path)
 {
     UnixServer(path);
 }
@@ -314,7 +314,7 @@ Server::~Server()
 
 // Listening socket setup
 
-bool Server::UnixServer(const std::string& path)
+bool Server::UnixServer(std::string_view path)
 {
     sockaddr_un addr;
     addr.sun_family = PF_LOCAL;
@@ -419,7 +419,7 @@ void Server::Broadcast(const Message& m)
 // Server connection management
 // INTERNAL only functions
 
-void Server::AddClient(Client& cl, const std::string& name)
+void Server::AddClient(Client& cl, std::string_view name)
 {
     std::lock_guard<std::mutex> guard(clients_mutex);
     auto& ch = clients.emplace_back(std::make_unique<ClientHandle>(cl, name));
@@ -598,7 +598,7 @@ void Server::AddConnection(int fd, sa_family_t addr_family)
 
 // ClientHandle iteration
 
-std::vector<ClientHandle*> Server::GetClients(const std::string& team)
+std::vector<ClientHandle*> Server::GetClients(std::string_view team)
 {
     std::lock_guard<std::mutex> guard(clients_mutex);
     return GetClients_NoLock(team);
@@ -632,8 +632,8 @@ Server::HandleIter Server::GetClientByPointer(Client* ptr)
     return iter;
 }
 
-ClientHandle* Server::GetFirstAvailable(const std::string& team,
-                                        const std::string& type,
+ClientHandle* Server::GetFirstAvailable(std::string_view team,
+                                        std::string_view type,
                                         const ClientHandle* exclude)
 {
     ClientHandle* result = nullptr;
@@ -649,7 +649,7 @@ ClientHandle* Server::GetFirstAvailable(const std::string& team,
     return result;
 }
 
-std::vector<ClientHandle*> Server::GetClients_NoLock(const std::string& team)
+std::vector<ClientHandle*> Server::GetClients_NoLock(std::string_view team)
 {
     std::vector<ClientHandle*> result;
     for (auto it = clients.begin(); it != clients.end(); ++it) {
@@ -668,25 +668,25 @@ Client::~Client()
     Close();
 }
 
-Client::Client(Server& server, const std::string& name)
+Client::Client(Server& server, std::string_view name)
 {
     InternalConnect(server, name);
 }
 
-Client::Client(const std::string& path, const std::string& name)
+Client::Client(std::string_view path, std::string_view name)
 {
     UnixConnect(path, name);
 }
 
-Client::Client(const std::string& hostname, short port, const std::string& name)
+Client::Client(std::string_view hostname, short port, std::string_view name)
 {
     IPConnect(hostname, port, name);
 }
 
 // Connection setup functions
 
-bool Client::IPConnect(const std::string& hostname, short port,
-                       const std::string& name)
+bool Client::IPConnect(std::string_view hostname, short port,
+                       std::string_view name)
 {
     if (setup) return true;
     addrinfo* res;
@@ -694,7 +694,7 @@ bool Client::IPConnect(const std::string& hostname, short port,
                      .ai_socktype = SOCK_STREAM };
 
     int gai_error;
-    if ((gai_error = getaddrinfo(hostname.c_str(), nullptr, &hints, &res))) {
+    if ((gai_error = getaddrinfo(hostname.data(), nullptr, &hints, &res))) {
         logger(WARNING,
             fmt::format("Failed to connect to address {}: getaddrinfo failed: {}",
                 hostname, gai_strerror(gai_error)));
@@ -724,7 +724,7 @@ bool Client::IPConnect(const std::string& hostname, short port,
     return true;
 }
 
-bool Client::UnixConnect(const std::string& path, const std::string& name)
+bool Client::UnixConnect(std::string_view path, std::string_view name)
 {
     if (setup) return true;
     client_socket = socket(PF_LOCAL, SOCK_STREAM, 0);
@@ -753,7 +753,7 @@ bool Client::UnixConnect(const std::string& path, const std::string& name)
     return true;
 }
 
-bool Client::InternalConnect(Server& server, const std::string& name)
+bool Client::InternalConnect(Server& server, std::string_view name)
 {
     if (setup) return true;
     server_ptr = &server;
@@ -812,7 +812,7 @@ void Client::Handshake()
     });
 }
 
-void Client::SetAvailable(const std::string& type, bool available)
+void Client::SetAvailable(std::string_view type, bool available)
 {
     Write({ .type = BUXTEHUDE_AVAILABLE, .content = {
         { "type", type },
@@ -832,7 +832,7 @@ void Client::HandleMessage(const Message& msg)
 
 // Handlers
 
-void Client::AddHandler(const std::string& type, Handler&& h)
+void Client::AddHandler(std::string_view type, Handler&& h)
 {
     handlers.emplace(type, std::forward<Handler>(h));
 }

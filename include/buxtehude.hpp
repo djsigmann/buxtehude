@@ -101,7 +101,7 @@ struct ClientPreferences
 };
 
 using Handler = std::function<void(Client&, const Message&)>;
-using LogCallback = void (*)(LogLevel, const std::string&);
+using LogCallback = void (*)(LogLevel, std::string_view);
 using SignalHandler = void (*)(int);
 
 // Must be called to initialise libevent, logging and SIGPIPE handling
@@ -112,7 +112,7 @@ constinit inline LogCallback logger = nullptr;
 class ClientHandle
 {
 public:
-    ClientHandle(Client& iclient, const std::string& teamname);
+    ClientHandle(Client& iclient, std::string_view teamname);
     ClientHandle(AddressType a, FILE* ptr);
     ClientHandle(const ClientHandle& other) = delete;
     ClientHandle(ClientHandle&& other) = delete;
@@ -122,11 +122,11 @@ public:
     // Applicable to all types of ClientHandle
     void Handshake();
     void Write(const Message& m);
-    void Error(const std::string& errstr);
-    void Disconnect(const std::string& reason="Disconnected by server");
+    void Error(std::string_view errstr);
+    void Disconnect(std::string_view reason="Disconnected by server");
     void Disconnect_NoWrite();
 
-    bool Available(const std::string& type);
+    bool Available(std::string_view type);
 
     // Try to read a message from the socket - only for INTERNET/UNIX
     std::optional<Message> Read();
@@ -153,14 +153,14 @@ class Server
 public:
     Server() = default;
     Server(const Server& other) = delete;
-    Server(const std::string& path); // UNIX server
+    Server(std::string_view path); // UNIX server
     Server(short port); // IP server
     ~Server();
 
     // Locks access to ClientHandle list.
-    std::vector<ClientHandle*> GetClients(const std::string& team=BUXTEHUDE_ALL);
+    std::vector<ClientHandle*> GetClients(std::string_view team=BUXTEHUDE_ALL);
 
-    bool UnixServer(const std::string& path="buxtehude_unix");
+    bool UnixServer(std::string_view path="buxtehude_unix");
     bool IPServer(short port=BUXTEHUDE_DEFAULT_PORT);
 
     void Run();
@@ -169,7 +169,7 @@ public:
     void Broadcast(const Message& msg);
 private: // For INTERNAL connections only.
     friend Client;
-    void AddClient(Client& cl, const std::string& name);
+    void AddClient(Client& cl, std::string_view name);
     void RemoveClient(Client& cl);
     void Receive(Client& cl, const Message& msg);
 private:
@@ -186,9 +186,9 @@ private:
     // Retrieving clients
     HandleIter GetClientBySocket(int fd);
     HandleIter GetClientByPointer(Client* ptr);
-    ClientHandle* GetFirstAvailable(const std::string& team, const std::string& type,
+    ClientHandle* GetFirstAvailable(std::string_view team, std::string_view type,
         const ClientHandle* exclude);
-    std::vector<ClientHandle*> GetClients_NoLock(const std::string& team=BUXTEHUDE_ALL);
+    std::vector<ClientHandle*> GetClients_NoLock(std::string_view team=BUXTEHUDE_ALL);
 
     std::vector<std::unique_ptr<ClientHandle>> clients;
     std::mutex clients_mutex;
@@ -217,22 +217,22 @@ public:
     Client() = default;
     Client(const Client& other) = delete;
     Client(Client&& other) = delete;
-    Client(Server& server, const std::string& name); // Internal connection
-    Client(const std::string& path, const std::string& name); // UNIX socket connection
+    Client(Server& server, std::string_view name); // Internal connection
+    Client(std::string_view path, std::string_view name); // UNIX socket connection
     // IP connection
-    Client(const std::string& hostname, short port, const std::string& name);
+    Client(std::string_view hostname, short port, std::string_view name);
     ~Client();
 
-    bool IPConnect(const std::string& hostname, short port, const std::string& name);
-    bool UnixConnect(const std::string& path, const std::string& name);
-    bool InternalConnect(Server& server, const std::string& name);
+    bool IPConnect(std::string_view hostname, short port, std::string_view name);
+    bool UnixConnect(std::string_view path, std::string_view name);
+    bool InternalConnect(Server& server, std::string_view name);
 
     // Applicable to all types of Client
     void Write(const Message& msg);
     void Handshake();
-    void SetAvailable(const std::string& type, bool available);
+    void SetAvailable(std::string_view type, bool available);
 
-    void AddHandler(const std::string& type, Handler&& h);
+    void AddHandler(std::string_view type, Handler&& h);
     void EraseHandler(const std::string& type);
     void ClearHandlers();
 
