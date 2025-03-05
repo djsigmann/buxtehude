@@ -35,8 +35,10 @@ bool Client::IPConnect(std::string_view hostname, short port,
 {
     if (setup) return true;
     addrinfo* res;
-    addrinfo hints { .ai_flags = AI_DEFAULT, .ai_family = PF_INET,
-                     .ai_socktype = SOCK_STREAM };
+    addrinfo hints {
+        .ai_flags = AI_DEFAULT, .ai_family = PF_INET,
+        .ai_socktype = SOCK_STREAM
+    };
 
     int gai_error;
     if ((gai_error = getaddrinfo(hostname.data(), nullptr, &hints, &res))) {
@@ -130,11 +132,14 @@ void Client::Write(const Message& msg)
 
 void Client::Handshake()
 {
-    Write({ .type = BUXTEHUDE_HANDSHAKE, .content = {
-        { "format", preferences.format },
-        { "teamname", teamname },
-        { "version", BUXTEHUDE_CURRENT_VERSION }
-    }});
+    Write({
+        .type = BUXTEHUDE_HANDSHAKE,
+        .content = {
+            { "format", preferences.format },
+            { "teamname", teamname },
+            { "version", BUXTEHUDE_CURRENT_VERSION }
+        }
+    });
 
     AddHandler(BUXTEHUDE_HANDSHAKE, [] (Client& c, const Message& m) {
         if (!ValidateJSON(m.content, VALIDATE_HANDSHAKE_CLIENTSIDE)) {
@@ -159,10 +164,13 @@ void Client::Handshake()
 
 void Client::SetAvailable(std::string_view type, bool available)
 {
-    Write({ .type = BUXTEHUDE_AVAILABLE, .content = {
-        { "type", type },
-        { "available", available }
-    }});
+    Write({
+        .type = BUXTEHUDE_AVAILABLE,
+        .content = {
+            { "type", type },
+            { "available", available }
+        }
+    });
 }
 
 void Client::HandleMessage(const Message& msg)
