@@ -17,25 +17,24 @@
 
 #include "validate.hpp"
 
-#define BUXTEHUDE_DEFAULT_PORT 1637
-
-#define BUXTEHUDE_ALL "$$all"
-#define BUXTEHUDE_AVAILABLE "$$available"
-#define BUXTEHUDE_ERROR "$$error"
-#define BUXTEHUDE_INFO "$$info"
-#define BUXTEHUDE_SERVER "$$server"
-#define BUXTEHUDE_YOU "$$you"
-#define BUXTEHUDE_DISCONNECT "$$disconnect"
-#define BUXTEHUDE_HANDSHAKE "$$handshake"
-#define BUXTEHUDE_SUBSCRIBE "$$subscribe"
-
-#define BUXTEHUDE_MAX_MESSAGE_LENGTH 16384
-
-#define BUXTEHUDE_CURRENT_VERSION 0
-#define BUXTEHUDE_MINIMUM_COMPATIBLE 0
-
 namespace buxtehude
 {
+
+constexpr std::string_view MSG_ALL        = "$$all";
+constexpr std::string_view MSG_AVAILABLE  = "$$available";
+constexpr std::string_view MSG_DISCONNECT = "$$disconnect";
+constexpr std::string_view MSG_ERROR      = "$$error";
+constexpr std::string_view MSG_HANDSHAKE  = "$$handshake";
+constexpr std::string_view MSG_INFO       = "$$info";
+constexpr std::string_view MSG_SERVER     = "$$server";
+constexpr std::string_view MSG_SUBSCRIBE  = "$$subscribe";
+constexpr std::string_view MSG_YOU        = "$$you";
+
+constexpr uint32_t MAX_MESSAGE_LENGTH = 1024 * 32;
+constexpr uint16_t DEFAULT_PORT = 1637;
+
+constexpr uint8_t CURRENT_VERSION        = 0;
+constexpr uint8_t MIN_COMPATIBLE_VERSION = 0;
 
 using nlohmann::json;
 
@@ -104,7 +103,7 @@ using nlohmann::json;
 
 inline const ValidationPair VERSION_CHECK = {
     "/version"_json_pointer,
-    predicates::GreaterEq<BUXTEHUDE_MINIMUM_COMPATIBLE>
+    predicates::GreaterEq<MIN_COMPATIBLE_VERSION>
 };
 
 inline const ValidationSeries VALIDATE_HANDSHAKE_SERVERSIDE = {
@@ -128,7 +127,7 @@ inline const ValidationSeries VALIDATE_SERVER_MESSAGE = {
 
 namespace callbacks {
 
-inline const timeval DEFAULT_TIMEOUT = { 60 , 0 };
+constexpr timeval DEFAULT_TIMEOUT = { 60, 0 };
 
 void ConnectionCallback(evconnlistener* listener, evutil_socket_t fd,
                         sockaddr* addr, int addr_len, void* data);

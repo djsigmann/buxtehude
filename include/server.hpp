@@ -69,14 +69,14 @@ public:
     Server() = default;
     Server(const Server& other) = delete;
     Server(std::string_view path); // UNIX server
-    Server(short port); // IP server
+    Server(uint16_t port); // IP server
     ~Server();
 
     // Locks access to ClientHandle list.
-    std::vector<ClientHandle*> GetClients(std::string_view team=BUXTEHUDE_ALL);
+    std::vector<ClientHandle*> GetClients(std::string_view team=MSG_ALL);
 
     bool UnixServer(std::string_view path="buxtehude_unix");
-    bool IPServer(short port=BUXTEHUDE_DEFAULT_PORT);
+    bool IPServer(uint16_t port=DEFAULT_PORT);
 
     void Run();
     void Close();
@@ -103,7 +103,7 @@ private:
     HandleIter GetClientByPointer(Client* ptr);
     ClientHandle* GetFirstAvailable(std::string_view team, std::string_view type,
         const ClientHandle* exclude);
-    std::vector<ClientHandle*> GetClients_NoLock(std::string_view team=BUXTEHUDE_ALL);
+    std::vector<ClientHandle*> GetClients_NoLock(std::string_view team=MSG_ALL);
 
     std::vector<std::unique_ptr<ClientHandle>> clients;
     std::mutex clients_mutex;

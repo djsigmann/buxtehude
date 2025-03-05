@@ -23,14 +23,14 @@ Client::Client(std::string_view path, std::string_view name)
     UnixConnect(path, name);
 }
 
-Client::Client(std::string_view hostname, short port, std::string_view name)
+Client::Client(std::string_view hostname, uint16_t port, std::string_view name)
 {
     IPConnect(hostname, port, name);
 }
 
 // Connection setup functions
 
-bool Client::IPConnect(std::string_view hostname, short port,
+bool Client::IPConnect(std::string_view hostname, uint16_t port,
                        std::string_view name)
 {
     if (setup) return true;
@@ -133,25 +133,25 @@ void Client::Write(const Message& msg)
 void Client::Handshake()
 {
     Write({
-        .type = BUXTEHUDE_HANDSHAKE,
+        .type { MSG_HANDSHAKE },
         .content = {
             { "format", preferences.format },
             { "teamname", teamname },
-            { "version", BUXTEHUDE_CURRENT_VERSION }
+            { "version", CURRENT_VERSION }
         }
     });
 
-    AddHandler(BUXTEHUDE_HANDSHAKE, [] (Client& c, const Message& m) {
+    AddHandler(MSG_HANDSHAKE, [] (Client& c, const Message& m) {
         if (!ValidateJSON(m.content, VALIDATE_HANDSHAKE_CLIENTSIDE)) {
             logger(WARNING, "Rejected server handshake - disconnecting");
             c.Close();
             return;
         }
 
-        c.EraseHandler(BUXTEHUDE_HANDSHAKE);
+        c.EraseHandler(std::string { MSG_HANDSHAKE });
     });
 
-    AddHandler(BUXTEHUDE_ERROR, [] (Client& c, const Message& m) {
+    AddHandler(MSG_ERROR, [] (Client& c, const Message& m) {
         if (!ValidateJSON(m.content, VALIDATE_SERVER_MESSAGE)) {
             logger(WARNING, "Erroneous server message");
             return;
@@ -165,7 +165,7 @@ void Client::Handshake()
 void Client::SetAvailable(std::string_view type, bool available)
 {
     Write({
-        .type = BUXTEHUDE_AVAILABLE,
+        .type { MSG_AVAILABLE },
         .content = {
             { "type", type },
             { "available", available }
@@ -280,7 +280,7 @@ bool Client::SetupEvents()
             return;
         }
         auto size = f.Get<uint32_t>();
-        if (size > BUXTEHUDE_MAX_MESSAGE_LENGTH) {
+        if (size > MAX_MESSAGE_LENGTH) {
             stream.Reset();
             logger(WARNING, "Buffer size too big!");
             return;

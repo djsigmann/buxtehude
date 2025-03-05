@@ -27,7 +27,7 @@ ClientHandle::ClientHandle(AddressType a, FILE* ptr) : atype(a)
             return;
         }
         auto size = f.Get<uint32_t>();
-        if (size > BUXTEHUDE_MAX_MESSAGE_LENGTH) {
+        if (size > MAX_MESSAGE_LENGTH) {
             s.Reset();
             Error("Buffer size too big!");
             return;
@@ -48,9 +48,9 @@ ClientHandle::~ClientHandle() { Disconnect(); }
 void ClientHandle::Handshake()
 {
     Write({
-        .type = BUXTEHUDE_HANDSHAKE,
+        .type { MSG_HANDSHAKE },
         .content = {
-            { "version", (int) BUXTEHUDE_CURRENT_VERSION }
+            { "version", CURRENT_VERSION }
         }
     });
 }
@@ -73,7 +73,7 @@ void ClientHandle::Error(std::string_view errstr)
     if (time(nullptr) - last_error < 1) return;
     last_error = time(nullptr);
 
-    Write({ .type = BUXTEHUDE_ERROR, .content = errstr });
+    Write({ .type { MSG_ERROR }, .content = errstr });
     if (!handshaken) Disconnect("Failed handshake");
 }
 
@@ -81,10 +81,10 @@ void ClientHandle::Disconnect(std::string_view reason)
 {
     if (!connected) return;
     Write({
-        .type = BUXTEHUDE_DISCONNECT,
+        .type { MSG_DISCONNECT },
         .content = {
             { "reason", reason },
-            { "who", BUXTEHUDE_YOU }
+            { "who", MSG_YOU }
         }
     });
     Disconnect_NoWrite();
@@ -142,7 +142,7 @@ Server::Server(std::string_view path)
     UnixServer(path);
 }
 
-Server::Server(short port)
+Server::Server(uint16_t port)
 {
     IPServer(port);
 }
@@ -188,7 +188,7 @@ bool Server::UnixServer(std::string_view path)
     return true;
 }
 
-bool Server::IPServer(short port)
+bool Server::IPServer(uint16_t port)
 {
     sockaddr_in addr = {0};
     addr.sin_family = PF_INET;
@@ -252,7 +252,7 @@ void Server::Close()
 
 void Server::Broadcast(const Message& m)
 {
-    for (ClientHandle* cl : GetClients(BUXTEHUDE_ALL)) cl->Write(m);
+    for (ClientHandle* cl : GetClients(MSG_ALL)) cl->Write(m);
 }
 
 // Server connection management
@@ -275,7 +275,7 @@ void Server::RemoveClient(Client& cl)
     } // Exit lock guard
 
     Broadcast({
-        .type = BUXTEHUDE_DISCONNECT,
+        .type { MSG_DISCONNECT },
         .content = {
             { "who", cl.teamname }
         }
@@ -310,7 +310,7 @@ void Server::Serve(ClientHandle* ch)
         });
         }
         Broadcast({
-            .type = BUXTEHUDE_DISCONNECT,
+            .type { MSG_DISCONNECT },
             .content = {
                 { "who", teamname }
             }
@@ -322,7 +322,7 @@ void Server::HandleMessage(ClientHandle* ch, Message&& msg)
 {
     // Types of the JSON values are validated in checks
     if (!ch->handshaken) {
-        if (msg.type != BUXTEHUDE_HANDSHAKE ||
+        if (msg.type != MSG_HANDSHAKE ||
             !ValidateJSON(msg.content, VALIDATE_HANDSHAKE_SERVERSIDE)) {
             ch->Disconnect("Failed handshake");
             return;
@@ -334,7 +334,7 @@ void Server::HandleMessage(ClientHandle* ch, Message&& msg)
         return;
     }
 
-    if (msg.type == BUXTEHUDE_AVAILABLE) {
+    if (msg.type == MSG_AVAILABLE) {
         if (!ValidateJSON(msg.content, VALIDATE_AVAILABLE)) {
             ch->Error("Incorrect format for $$available message");
             return;
@@ -482,7 +482,7 @@ ClientHandle* Server::GetFirstAvailable(std::string_view team,
 
     for (auto it = clients.begin(); it != clients.end(); ++it) {
         ClientHandle* ch = it->get();
-        if ((ch->teamname == team || team == BUXTEHUDE_ALL) && ch != exclude)
+        if ((ch->teamname == team || team == MSG_ALL) && ch != exclude)
             result = ch;
         else continue;
         if (ch->Available(type)) return result;
@@ -493,7 +493,7 @@ ClientHandle* Server::GetFirstAvailable(std::string_view team,
 
 std::vector<ClientHandle*> Server::GetClients_NoLock(std::string_view team)
 {
-    if (team == BUXTEHUDE_ALL) return clients | tb::ptr_vec<ClientHandle>();
+    if (team == MSG_ALL) return clients | tb::ptr_vec<ClientHandle>();
 
     return clients | std::views::filter([team] (const auto& client) {
         return client->teamname == team;

@@ -27,10 +27,10 @@ public:
     Client(Server& server, std::string_view name); // Internal connection
     Client(std::string_view path, std::string_view name); // UNIX socket connection
     // IP connection
-    Client(std::string_view hostname, short port, std::string_view name);
+    Client(std::string_view hostname, uint16_t port, std::string_view name);
     ~Client();
 
-    bool IPConnect(std::string_view hostname, short port, std::string_view name);
+    bool IPConnect(std::string_view hostname, uint16_t port, std::string_view name);
     bool UnixConnect(std::string_view path, std::string_view name);
     bool InternalConnect(Server& server, std::string_view name);
 
