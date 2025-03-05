@@ -341,7 +341,7 @@ void Server::HandleMessage(ClientHandle* ch, Message&& msg)
         }
         std::string type = msg.content["type"];
         bool available = msg.content["available"];
-        auto it = std::find(ch->unavailable.begin(), ch->unavailable.end(), type);
+        auto it = std::ranges::find(ch->unavailable, type);
         if (available) {
             if (it != ch->unavailable.end()) ch->unavailable.erase(it);
         } else {
@@ -448,7 +448,7 @@ std::vector<ClientHandle*> Server::GetClients(std::string_view team)
 
 Server::HandleIter Server::GetClientBySocket(int fd)
 {
-    auto iter = std::find_if(clients.begin(), clients.end(),
+    auto iter = std::ranges::find_if(clients,
         [fd] (auto& unique_pointer) {
             return unique_pointer->socket == fd;
         }
