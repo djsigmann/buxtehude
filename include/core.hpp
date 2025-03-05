@@ -48,6 +48,21 @@ enum EventType { NEW_CONNECTION, READ_READY, TIMEOUT, INTERRUPT };
 
 enum LogLevel { DEBUG = 0, INFO = 1, WARNING = 2, SEVERE = 3 };
 
+template<auto Deleter>
+struct LibeventDeleter
+{
+    constexpr void operator()(auto* ev) { Deleter(ev); }
+};
+
+template<typename T>
+T make(typename T::element_type* ptr) { return T { ptr }; }
+
+using UEvent = std::unique_ptr<event, LibeventDeleter<event_free>>;
+using UEventBase = std::unique_ptr<event_base,
+                                   LibeventDeleter<event_base_free>>;
+using UEvconnListener = std::unique_ptr<evconnlistener,
+                                        LibeventDeleter<evconnlistener_free>>;
+
 struct EventCallbackData
 {
     sockaddr address;

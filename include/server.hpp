@@ -51,7 +51,7 @@ private:
 public:
     std::vector<std::string> unavailable;
     std::string teamname = "$$unauthorised";
-    event* read_event = nullptr;
+    UEvent read_event;
     Client* client_ptr = nullptr; // Only for INTERNAL connections
 
     AddressType atype;
@@ -118,10 +118,9 @@ private:
     std::string unix_path;
 
     // Libevent internals
-    event_base* ebase = nullptr;
-    evconnlistener* ip_listener = nullptr;
-    evconnlistener* unix_listener = nullptr;
-    event* interrupt_event = nullptr;
+    UEventBase ebase;
+    UEvconnListener ip_listener, unix_listener;
+    UEvent interrupt_event;
 
     EventCallbackData callback_data;
 };

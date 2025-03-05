@@ -47,9 +47,12 @@ ClientHandle::~ClientHandle() { Disconnect(); }
 
 void ClientHandle::Handshake()
 {
-    Write(Message { .type = BUXTEHUDE_HANDSHAKE, .content = {
-        { "version", (int) BUXTEHUDE_CURRENT_VERSION }
-    }});
+    Write({
+        .type = BUXTEHUDE_HANDSHAKE,
+        .content = {
+            { "version", (int) BUXTEHUDE_CURRENT_VERSION }
+        }
+    });
 }
 
 void ClientHandle::Write(const Message& msg)
@@ -77,24 +80,22 @@ void ClientHandle::Error(std::string_view errstr)
 void ClientHandle::Disconnect(std::string_view reason)
 {
     if (!connected) return;
-    Write({ .type = BUXTEHUDE_DISCONNECT, .content = {
-        { "reason", reason },
-        { "who", BUXTEHUDE_YOU }
-    }});
+    Write({
+        .type = BUXTEHUDE_DISCONNECT,
+        .content = {
+            { "reason", reason },
+            { "who", BUXTEHUDE_YOU }
+        }
+    });
     Disconnect_NoWrite();
 }
 
 void ClientHandle::Disconnect_NoWrite()
 {
     if (!connected) return;
-    if ((atype == UNIX || atype == INTERNET) && stream.file) {
+    if (atype == UNIX || atype == INTERNET) {
         fclose(stream.file);
-
-        if (read_event) {
-            event_del(read_event);
-            event_free(read_event);
-        }
-    } else if (atype == INTERNAL) {
+    } else {
         client_ptr->Close();
     }
     logger(DEBUG, fmt::format("Disconnecting client {}", teamname));
@@ -161,15 +162,17 @@ bool Server::UnixServer(std::string_view path)
     size_t path_len = path.size() < sizeof(addr.sun_path) - 1 ?
         path.size() : sizeof (addr.sun_path) - 1;
     memcpy(addr.sun_path, path.data(), path_len);
-    addr.sun_path[path_len] = 0; // Null terminator
+    addr.sun_path[path_len] = '\0';
 
     unix_path = addr.sun_path;
 
     if (!SetupEvents()) return false;
 
-    unix_listener = evconnlistener_new_bind(ebase,
-        callbacks::ConnectionCallback, &callback_data, LEV_OPT_CLOSE_ON_FREE,
-        -1, (sockaddr*)&addr, sizeof(addr));
+    unix_listener = make<UEvconnListener>(
+        evconnlistener_new_bind(ebase.get(), callbacks::ConnectionCallback,
+                                &callback_data, LEV_OPT_CLOSE_ON_FREE,
+                                -1, (sockaddr*)&addr, sizeof(addr))
+    );
 
     if (!unix_listener) {
         logger(WARNING,
@@ -179,7 +182,7 @@ bool Server::UnixServer(std::string_view path)
         return false;
     }
 
-    unix_server = evconnlistener_get_fd(unix_listener);
+    unix_server = evconnlistener_get_fd(unix_listener.get());
     logger(DEBUG, fmt::format("Listening on file {}", path));
 
     return true;
@@ -196,9 +199,12 @@ bool Server::IPServer(short port)
     if (!SetupEvents()) return false;
 
     // Passing -1 as the backlog allows libevent to try select an optimal backlog number.
-    ip_listener = evconnlistener_new_bind(ebase, callbacks::ConnectionCallback,
-        &callback_data, LEV_OPT_REUSEABLE | LEV_OPT_CLOSE_ON_FREE, -1,
-        (sockaddr*)&addr, sizeof(addr));
+    ip_listener = make<UEvconnListener>(
+        evconnlistener_new_bind(ebase.get(), callbacks::ConnectionCallback,
+                                &callback_data,
+                                LEV_OPT_REUSEABLE | LEV_OPT_CLOSE_ON_FREE, -1,
+                                (sockaddr*)&addr, sizeof(addr))
+    );
 
     if (!ip_listener) {
         logger(WARNING,
@@ -208,7 +214,7 @@ bool Server::IPServer(short port)
         return false;
     }
 
-    ip_server = evconnlistener_get_fd(ip_listener);
+    ip_server = evconnlistener_get_fd(ip_listener.get());
 
     logger(DEBUG, fmt::format("Listening on port {}", port));
 
@@ -232,7 +238,7 @@ void Server::Close()
     run = false;
     logger(DEBUG, "Shutting down server");
     if (interrupt_event && current_thread.joinable()) {
-        event_active(interrupt_event, 0, 0);
+        event_active(interrupt_event.get(), 0, 0);
         current_thread.join();
     }
 
@@ -241,15 +247,7 @@ void Server::Close()
     clients.clear();
     }
 
-    if (unix_listener) {
-        evconnlistener_free(unix_listener);
-        unlink(unix_path.c_str());
-    }
-
-    if (ip_listener) evconnlistener_free(ip_listener);
-
-    if (ebase) event_base_free(ebase);
-    if (interrupt_event) event_free(interrupt_event);
+    unlink(unix_path.c_str());
 }
 
 void Server::Broadcast(const Message& m)
@@ -370,22 +368,24 @@ bool Server::SetupEvents()
 {
     if (ebase) return true;
 
-    ebase = event_base_new();
-    callback_data.ebase = ebase;
+    ebase = make<UEventBase>(event_base_new());
+    callback_data.ebase = ebase.get();
     if (!ebase) {
         logger(WARNING, "Failed to create event base");
         return false;
     }
 
-    interrupt_event = event_new(ebase, -1, EV_PERSIST,
-        callbacks::LoopInterruptCallback, &callback_data);
+    interrupt_event = make<UEvent>(
+        event_new(ebase.get(), -1, EV_PERSIST, callbacks::LoopInterruptCallback,
+                  &callback_data)
+    );
 
     return true;
 }
 
 void Server::Listen()
 {
-    while (event_base_dispatch(ebase) == 0) {
+    while (event_base_dispatch(ebase.get()) == 0) {
         if (!run) break;
         switch (callback_data.type) {
         case NEW_CONNECTION: {
@@ -427,10 +427,12 @@ void Server::AddConnection(int fd, sa_family_t addr_family)
     AddressType atype = addr_family == AF_LOCAL ? UNIX : INTERNET;
     auto& cl = clients.emplace_back(std::make_unique<ClientHandle>(atype, stream));
 
-    cl->read_event = event_new(ebase, fd, EV_PERSIST | EV_READ,
-        callbacks::ReadCallback, (void*)&callback_data);
+    cl->read_event = make<UEvent>(
+        event_new(ebase.get(), fd, EV_PERSIST | EV_READ,
+                  callbacks::ReadCallback, (void*)&callback_data)
+    );
 
-    event_add(cl->read_event, &callbacks::DEFAULT_TIMEOUT);
+    event_add(cl->read_event.get(), &callbacks::DEFAULT_TIMEOUT);
 
     logger(DEBUG, fmt::format("New client connected on {} domain, fd = {}",
            atype == UNIX ? "UNIX" : "internet", fd));

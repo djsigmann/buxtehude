@@ -74,9 +74,8 @@ private:
     bool setup = false;
 
     // Libevent internals
-    event_base* ebase = nullptr;
-    event* read_event = nullptr;
-    event* interrupt_event = nullptr;
+    UEventBase ebase;
+    UEvent read_event, interrupt_event;
 
     EventCallbackData callback_data;
 };

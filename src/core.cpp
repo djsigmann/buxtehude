@@ -53,7 +53,7 @@ void Initialise(LogCallback logcb, SignalHandler sigh)
 
     // UNIX domain connections being closed sends signal SIGPIPE to the process trying to
     // read from this socket. Not intercepting this signal would kill the process.
-    struct sigaction sighandle = {0};
+    struct sigaction sighandle {};
     sighandle.sa_handler = sigh ? sigh : SIG_IGN;
     sigaction(SIGPIPE, &sighandle, nullptr);
 }

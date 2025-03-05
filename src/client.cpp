@@ -80,7 +80,7 @@ bool Client::UnixConnect(std::string_view path, std::string_view name)
     size_t path_len = path.size() < sizeof(addr.sun_path) - 1 ?
         path.size() : sizeof (addr.sun_path) - 1;
     memcpy(addr.sun_path, path.data(), path_len);
-    addr.sun_path[path_len] = 0; // Null terminator
+    addr.sun_path[path_len] = '\0';
 
     if (connect(client_socket, (sockaddr*)&addr, sizeof(sockaddr_un))) {
         logger(WARNING, fmt::format("Failed to connect to file {}: {}",
@@ -219,15 +219,12 @@ void Client::Close()
     logger(DEBUG, "Closing client");
 
     if (stream.file) {
-        event_active(interrupt_event, 0, 0);
+        event_active(interrupt_event.get(), 0, 0);
         if (current_thread.joinable()
             && std::this_thread::get_id() != current_thread.get_id())
             current_thread.join();
 
         fclose(stream.file);
-        event_free(read_event);
-        event_free(interrupt_event);
-        event_base_free(ebase);
     }
 
     if (server_ptr && atype == INTERNAL) {
@@ -247,22 +244,27 @@ void Client::Receive(const Message& msg)
 
 bool Client::SetupEvents()
 {
-    ebase = event_base_new();
-    callback_data.ebase = ebase;
+    ebase = make<UEventBase>(event_base_new());
+
+    callback_data.ebase = ebase.get();
     if (!ebase) {
         logger(WARNING, "Failed to create event base");
         return false;
     }
 
-    read_event = event_new(ebase, client_socket, EV_PERSIST | EV_READ,
-        callbacks::ReadCallback, (void*)&callback_data);
-    interrupt_event = event_new(ebase, -1, EV_PERSIST,
-        callbacks::LoopInterruptCallback, &callback_data);
+    read_event = make<UEvent>(
+        event_new(ebase.get(), client_socket, EV_PERSIST | EV_READ,
+                  callbacks::ReadCallback, (void*)&callback_data)
+    );
+    interrupt_event = make<UEvent>(
+        event_new(ebase.get(), -1, EV_PERSIST,
+                  callbacks::LoopInterruptCallback, &callback_data)
+    );
 
-    event_add(read_event, &callbacks::DEFAULT_TIMEOUT);
+    event_add(read_event.get(), &callbacks::DEFAULT_TIMEOUT);
 
     stream.file = fdopen(client_socket, "r+");
-    stream.Await<uint8_t>().Await<uint32_t>().Then([this] (Stream& stream, Field& f) {
+    stream.Await<uint8_t>().Await<uint32_t>().Then([] (Stream& stream, Field& f) {
         auto type = f[-1].Get<uint8_t>();
         if (type != MessageFormat::JSON && type != MessageFormat::MSGPACK) {
             stream.Reset();
@@ -307,7 +309,7 @@ void Client::Read()
 
 void Client::Listen()
 {
-    while (event_base_dispatch(ebase) == 0) {
+    while (event_base_dispatch(ebase.get()) == 0) {
         if (!run) break;
         switch (callback_data.type) {
         case READ_READY:
