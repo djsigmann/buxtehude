@@ -16,10 +16,11 @@ ClientHandle::ClientHandle(Client& iclient, std::string_view teamname)
     : teamname(teamname), client_ptr(&iclient), atype(INTERNAL), connected(true)
 {}
 
-ClientHandle::ClientHandle(AddressType a, FILE* ptr) : atype(a)
+ClientHandle::ClientHandle(AddressType a, FILE* ptr, uint32_t max_msg_len) : atype(a)
 {
     stream.file = ptr;
-    stream.Await<uint8_t>().Await<uint32_t>().Then([this] (Stream& s, Field& f) {
+    stream.Await<uint8_t>().Await<uint32_t>()
+          .Then([this, max_msg_len] (Stream& s, Field& f) {
         auto type = f[-1].Get<uint8_t>();
         if (type != MessageFormat::JSON && type != MessageFormat::MSGPACK) {
             s.Reset();
@@ -27,7 +28,7 @@ ClientHandle::ClientHandle(AddressType a, FILE* ptr) : atype(a)
             return;
         }
         auto size = f.Get<uint32_t>();
-        if (size > MAX_MESSAGE_LENGTH) {
+        if (size > max_msg_len) {
             s.Reset();
             Error("Buffer size too big!");
             return;
@@ -258,10 +259,12 @@ void Server::Broadcast(const Message& m)
 // Server connection management
 // INTERNAL only functions
 
-void Server::AddClient(Client& cl, std::string_view name)
+void Server::AddClient(Client& cl)
 {
     std::lock_guard<std::mutex> guard(clients_mutex);
-    auto& ch = clients.emplace_back(std::make_unique<ClientHandle>(cl, name));
+    auto& ch = clients.emplace_back(
+        std::make_unique<ClientHandle>(cl, cl.preferences.teamname)
+    );
     ch->Handshake();
 }
 
@@ -277,7 +280,7 @@ void Server::RemoveClient(Client& cl)
     Broadcast({
         .type { MSG_DISCONNECT },
         .content = {
-            { "who", cl.teamname }
+            { "who", cl.preferences.teamname }
         }
     });
 }
@@ -425,7 +428,9 @@ void Server::AddConnection(int fd, sa_family_t addr_family)
     FILE* stream = fdopen(fd, "r+");
 
     AddressType atype = addr_family == AF_LOCAL ? UNIX : INTERNET;
-    auto& cl = clients.emplace_back(std::make_unique<ClientHandle>(atype, stream));
+    auto& cl = clients.emplace_back(
+        std::make_unique<ClientHandle>(atype, stream, max_msg_length)
+    );
 
     cl->read_event = make<UEvent>(
         event_new(ebase.get(), fd, EV_PERSIST | EV_READ,

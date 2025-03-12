@@ -13,25 +13,9 @@ Client::~Client()
     Close();
 }
 
-Client::Client(Server& server, std::string_view name)
-{
-    InternalConnect(server, name);
-}
-
-Client::Client(std::string_view path, std::string_view name)
-{
-    UnixConnect(path, name);
-}
-
-Client::Client(std::string_view hostname, uint16_t port, std::string_view name)
-{
-    IPConnect(hostname, port, name);
-}
-
 // Connection setup functions
 
-bool Client::IPConnect(std::string_view hostname, uint16_t port,
-                       std::string_view name)
+bool Client::IPConnect(std::string_view hostname, uint16_t port)
 {
     if (setup) return true;
     addrinfo* res;
@@ -62,8 +46,6 @@ bool Client::IPConnect(std::string_view hostname, uint16_t port,
     freeaddrinfo(res);
 
     if (!SetupEvents()) return false;
-
-    teamname = name;
     atype = INTERNET;
 
     Handshake();
@@ -71,7 +53,7 @@ bool Client::IPConnect(std::string_view hostname, uint16_t port,
     return true;
 }
 
-bool Client::UnixConnect(std::string_view path, std::string_view name)
+bool Client::UnixConnect(std::string_view path)
 {
     if (setup) return true;
     client_socket = socket(PF_LOCAL, SOCK_STREAM, 0);
@@ -91,8 +73,6 @@ bool Client::UnixConnect(std::string_view path, std::string_view name)
     }
 
     if (!SetupEvents()) return false;
-
-    teamname = name;
     atype = UNIX;
 
     Handshake();
@@ -100,14 +80,12 @@ bool Client::UnixConnect(std::string_view path, std::string_view name)
     return true;
 }
 
-bool Client::InternalConnect(Server& server, std::string_view name)
+bool Client::InternalConnect(Server& server)
 {
     if (setup) return true;
     server_ptr = &server;
-    server.AddClient(*this, name);
+    server.AddClient(*this);
     setup = true;
-
-    teamname = name;
     atype = INTERNAL;
 
     Handshake();
@@ -136,8 +114,9 @@ void Client::Handshake()
         .type { MSG_HANDSHAKE },
         .content = {
             { "format", preferences.format },
-            { "teamname", teamname },
-            { "version", CURRENT_VERSION }
+            { "teamname", preferences.teamname },
+            { "version", CURRENT_VERSION },
+            { "max-message-length", preferences.max_msg_length }
         }
     });
 
@@ -272,7 +251,7 @@ bool Client::SetupEvents()
     event_add(read_event.get(), &callbacks::DEFAULT_TIMEOUT);
 
     stream.file = fdopen(client_socket, "r+");
-    stream.Await<uint8_t>().Await<uint32_t>().Then([] (Stream& stream, Field& f) {
+    stream.Await<uint8_t>().Await<uint32_t>().Then([this] (Stream& stream, Field& f) {
         auto type = f[-1].Get<uint8_t>();
         if (type != MessageFormat::JSON && type != MessageFormat::MSGPACK) {
             stream.Reset();
@@ -280,7 +259,7 @@ bool Client::SetupEvents()
             return;
         }
         auto size = f.Get<uint32_t>();
-        if (size > MAX_MESSAGE_LENGTH) {
+        if (size > preferences.max_msg_length) {
             stream.Reset();
             logger(WARNING, "Buffer size too big!");
             return;

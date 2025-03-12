@@ -28,7 +28,7 @@ class ClientHandle
 {
 public:
     ClientHandle(Client& iclient, std::string_view teamname);
-    ClientHandle(AddressType a, FILE* ptr);
+    ClientHandle(AddressType a, FILE* ptr, uint32_t max_msg_len);
     ClientHandle(const ClientHandle& other) = delete;
     ClientHandle(ClientHandle&& other) = delete;
     ClientHandle& operator=(ClientHandle&& other) = delete;
@@ -82,9 +82,11 @@ public:
     void Close();
 
     void Broadcast(const Message& msg);
+
+    uint32_t max_msg_length = DEFAULT_MAX_MESSAGE_LENGTH;
 private: // For INTERNAL connections only.
     friend Client;
-    void AddClient(Client& cl, std::string_view name);
+    void AddClient(Client& cl);
     void RemoveClient(Client& cl);
     void Receive(Client& cl, const Message& msg);
 private:

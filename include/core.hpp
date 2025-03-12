@@ -30,7 +30,7 @@ constexpr std::string_view MSG_SERVER     = "$$server";
 constexpr std::string_view MSG_SUBSCRIBE  = "$$subscribe";
 constexpr std::string_view MSG_YOU        = "$$you";
 
-constexpr uint32_t MAX_MESSAGE_LENGTH = 1024 * 32;
+constexpr uint32_t DEFAULT_MAX_MESSAGE_LENGTH = 1024 * 128;
 constexpr uint16_t DEFAULT_PORT = 1637;
 
 constexpr uint8_t CURRENT_VERSION        = 0;
@@ -87,7 +87,9 @@ void from_json(const json& j, Message& msg);
 
 struct ClientPreferences
 {
-    MessageFormat format = JSON;
+    std::string teamname = "default";
+    MessageFormat format = MSGPACK;
+    uint32_t max_msg_length = DEFAULT_MAX_MESSAGE_LENGTH;
 };
 
 using Handler = std::function<void(Client&, const Message&)>;
@@ -109,6 +111,7 @@ inline const ValidationPair VERSION_CHECK = {
 inline const ValidationSeries VALIDATE_HANDSHAKE_SERVERSIDE = {
     { "/teamname"_json_pointer, predicates::NotEmpty },
     { "/format"_json_pointer, predicates::Matches({ JSON, MSGPACK }) },
+    { "/max-message-length"_json_pointer, [] (const json& j) { return j.is_number(); } },
     VERSION_CHECK
 };
 

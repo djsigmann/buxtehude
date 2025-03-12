@@ -24,15 +24,12 @@ public:
     Client() = default;
     Client(const Client& other) = delete;
     Client(Client&& other) = delete;
-    Client(Server& server, std::string_view name); // Internal connection
-    Client(std::string_view path, std::string_view name); // UNIX socket connection
-    // IP connection
-    Client(std::string_view hostname, uint16_t port, std::string_view name);
+    Client(const ClientPreferences& preferences);
     ~Client();
 
-    bool IPConnect(std::string_view hostname, uint16_t port, std::string_view name);
-    bool UnixConnect(std::string_view path, std::string_view name);
-    bool InternalConnect(Server& server, std::string_view name);
+    bool IPConnect(std::string_view hostname, uint16_t port);
+    bool UnixConnect(std::string_view path);
+    bool InternalConnect(Server& server);
 
     // Applicable to all types of Client
     void Write(const Message& msg);
@@ -46,7 +43,6 @@ public:
     void Run();
     void Close(); // Run must be called before Close()
 
-    std::string teamname;
     ClientPreferences preferences;
 private: // Only for INTERNAL clients
     friend ClientHandle;
