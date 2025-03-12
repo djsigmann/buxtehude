@@ -56,7 +56,7 @@ private:
 
     void HandleMessage(const Message& msg);
 
-    AddressType atype;
+    ConnectionType conn_type;
 
     int client_socket = -1;
     Stream stream;

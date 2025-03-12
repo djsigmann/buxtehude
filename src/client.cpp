@@ -26,7 +26,7 @@ bool Client::IPConnect(std::string_view hostname, uint16_t port)
 
     int gai_error;
     if ((gai_error = getaddrinfo(hostname.data(), nullptr, &hints, &res))) {
-        logger(WARNING,
+        logger(LogLevel::WARNING,
             fmt::format("Failed to connect to address {}: getaddrinfo failed: {}",
                 hostname, gai_strerror(gai_error)));
         freeaddrinfo(res);
@@ -38,7 +38,7 @@ bool Client::IPConnect(std::string_view hostname, uint16_t port)
     addr->sin_port = htons(port);
 
     if (connect(client_socket, (sockaddr*)addr, sizeof(sockaddr_in))) {
-        logger(WARNING, fmt::format("Failed to connect to address {}: {}",
+        logger(LogLevel::WARNING, fmt::format("Failed to connect to address {}: {}",
             hostname, strerror(errno)));
         return false;
     }
@@ -46,7 +46,7 @@ bool Client::IPConnect(std::string_view hostname, uint16_t port)
     freeaddrinfo(res);
 
     if (!SetupEvents()) return false;
-    atype = INTERNET;
+    conn_type = ConnectionType::INTERNET;
 
     Handshake();
 
@@ -67,13 +67,13 @@ bool Client::UnixConnect(std::string_view path)
     addr.sun_path[path_len] = '\0';
 
     if (connect(client_socket, (sockaddr*)&addr, sizeof(sockaddr_un))) {
-        logger(WARNING, fmt::format("Failed to connect to file {}: {}",
+        logger(LogLevel::WARNING, fmt::format("Failed to connect to file {}: {}",
             path, strerror(errno)));
         return false;
     }
 
     if (!SetupEvents()) return false;
-    atype = UNIX;
+    conn_type = ConnectionType::UNIX;
 
     Handshake();
 
@@ -86,7 +86,7 @@ bool Client::InternalConnect(Server& server)
     server_ptr = &server;
     server.AddClient(*this);
     setup = true;
-    atype = INTERNAL;
+    conn_type = ConnectionType::INTERNAL;
 
     Handshake();
 
@@ -97,13 +97,13 @@ bool Client::InternalConnect(Server& server)
 
 void Client::Write(const Message& msg)
 {
-    if (atype == INTERNAL) {
+    if (conn_type == ConnectionType::INTERNAL) {
         server_ptr->Receive(*this, msg);
         return;
     }
 
     if (!Message::WriteToStream(stream.file, msg, preferences.format)) {
-        logger(WARNING, "Failed to write - closing connection");
+        logger(LogLevel::WARNING, "Failed to write - closing connection");
         Close();
     }
 }
@@ -122,7 +122,7 @@ void Client::Handshake()
 
     AddHandler(MSG_HANDSHAKE, [] (Client& c, const Message& m) {
         if (!ValidateJSON(m.content, VALIDATE_HANDSHAKE_CLIENTSIDE)) {
-            logger(WARNING, "Rejected server handshake - disconnecting");
+            logger(LogLevel::WARNING, "Rejected server handshake - disconnecting");
             c.Close();
             return;
         }
@@ -132,11 +132,11 @@ void Client::Handshake()
 
     AddHandler(MSG_ERROR, [] (Client& c, const Message& m) {
         if (!ValidateJSON(m.content, VALIDATE_SERVER_MESSAGE)) {
-            logger(WARNING, "Erroneous server message");
+            logger(LogLevel::WARNING, "Erroneous server message");
             return;
         }
 
-        logger(INFO, fmt::format("Error message from server: {}",
+        logger(LogLevel::INFO, fmt::format("Error message from server: {}",
                m.content.get<std::string>()));
     });
 }
@@ -155,7 +155,7 @@ void Client::SetAvailable(std::string_view type, bool available)
 void Client::HandleMessage(const Message& msg)
 {
     if (msg.type.empty()) {
-        logger(WARNING, "Received message with no type!");
+        logger(LogLevel::WARNING, "Received message with no type!");
         return;
     }
 
@@ -178,7 +178,7 @@ void Client::ClearHandlers() { handlers.clear(); }
 void Client::Run()
 {
     if (!setup) {
-        logger(WARNING, "Tried to run client before setup!");
+        logger(LogLevel::WARNING, "Tried to run client before setup!");
         return;
     }
     run = true;
@@ -203,7 +203,7 @@ void Client::Close()
         return;
     }
     run = false;
-    logger(DEBUG, "Closing client");
+    logger(LogLevel::DEBUG, "Closing client");
 
     if (stream.file) {
         event_active(interrupt_event.get(), 0, 0);
@@ -214,7 +214,7 @@ void Client::Close()
         fclose(stream.file);
     }
 
-    if (server_ptr && atype == INTERNAL) {
+    if (server_ptr && conn_type == ConnectionType::INTERNAL) {
         server_ptr->RemoveClient(*this);
     }
 }
@@ -235,7 +235,7 @@ bool Client::SetupEvents()
 
     callback_data.ebase = ebase.get();
     if (!ebase) {
-        logger(WARNING, "Failed to create event base");
+        logger(LogLevel::WARNING, "Failed to create event base");
         return false;
     }
 
@@ -252,22 +252,22 @@ bool Client::SetupEvents()
 
     stream.file = fdopen(client_socket, "r+");
     stream.Await<uint8_t>().Await<uint32_t>().Then([this] (Stream& stream, Field& f) {
-        auto type = f[-1].Get<uint8_t>();
+        auto type = f[-1].Get<MessageFormat>();
         if (type != MessageFormat::JSON && type != MessageFormat::MSGPACK) {
             stream.Reset();
-            logger(WARNING, "Invalid message type!");
+            logger(LogLevel::WARNING, "Invalid message type!");
             return;
         }
         auto size = f.Get<uint32_t>();
         if (size > preferences.max_msg_length) {
             stream.Reset();
-            logger(WARNING, "Buffer size too big!");
+            logger(LogLevel::WARNING, "Buffer size too big!");
             return;
         }
         stream.Await(size);
     });
 
-    preferences.format = MSGPACK;
+    preferences.format = MessageFormat::MSGPACK;
     setup = true;
     return true;
 }
@@ -287,7 +287,7 @@ void Client::Read()
         HandleMessage(message);
     } catch (const json::parse_error& e) {
         std::string error = fmt::format("Error parsing message: {}", e.what());
-        logger(WARNING, error);
+        logger(LogLevel::WARNING, error);
     }
 
     stream.Delete(stream[2]);
@@ -299,11 +299,11 @@ void Client::Listen()
     while (event_base_dispatch(ebase.get()) == 0) {
         if (!run) break;
         switch (callback_data.type) {
-        case READ_READY:
+        case EventType::READ_READY:
             Read();
+        case EventType::INTERRUPT: return;
         default:
             break;
-        case INTERRUPT: return;
         }
     }
 }

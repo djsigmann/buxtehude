@@ -32,7 +32,7 @@ void from_json(const json& j, Message& msg)
 void DefaultLog(LogLevel l, std::string_view message)
 {
     const static char* LEVEL_NAMES[] = { "DEBUG", "INFO", "WARNING", "SEVERE" };
-    fmt::print("[{}] {}\n", LEVEL_NAMES[l], message);
+    fmt::print("[{}] {}\n", LEVEL_NAMES[static_cast<size_t>(l)], message);
 }
 
 void Initialise(LogCallback logcb, SignalHandler sigh)
@@ -66,9 +66,9 @@ std::string Message::Serialise(MessageFormat f) const
 
     switch (f) {
     default:
-    case JSON:
+    case MessageFormat::JSON:
         return json_obj.dump();
-    case MSGPACK: {
+    case MessageFormat::MSGPACK: {
         std::string data;
         // Despite the presence of \0 characters, to_msgpack will store all bytes of the
         // MsgPack representation in the string object, and a call to size() will
@@ -84,9 +84,9 @@ std::string Message::Serialise(MessageFormat f) const
 Message Message::Deserialise(MessageFormat f, std::string_view data)
 {
     switch (f) {
-    case JSON:
+    case MessageFormat::JSON:
         return json::parse(data).get<Message>();
-    case MSGPACK:
+    case MessageFormat::MSGPACK:
         return json::from_msgpack(data).get<Message>();
     }
 }
@@ -95,7 +95,7 @@ bool Message::WriteToStream(FILE* stream, const Message& message, MessageFormat 
 {
     std::string data = message.Serialise(f);
     uint32_t len = data.size();
-    uint8_t format = f;
+    uint8_t format = static_cast<uint8_t>(f);
     fwrite(&format, sizeof(uint8_t), 1, stream);
     fwrite(&len, sizeof(uint32_t), 1, stream);
     fwrite(data.data(), len, 1, stream);
@@ -113,7 +113,7 @@ void ConnectionCallback(evconnlistener* listener, evutil_socket_t fd,
     ecdata->fd = fd;
     ecdata->address = *addr;
     ecdata->addr_len = addr_len;
-    ecdata->type = NEW_CONNECTION;
+    ecdata->type = EventType::NEW_CONNECTION;
 
     event_base_loopbreak(ecdata->ebase);
 }
@@ -123,8 +123,8 @@ void ReadCallback(evutil_socket_t fd, short what, void* data)
     EventCallbackData* ecdata = (EventCallbackData*) data;
 
     ecdata->fd = fd;
-    if (what & EV_READ) ecdata->type = READ_READY;
-    else if (what & EV_TIMEOUT) ecdata->type = TIMEOUT;
+    if (what & EV_READ) ecdata->type = EventType::READ_READY;
+    else if (what & EV_TIMEOUT) ecdata->type = EventType::TIMEOUT;
 
     event_base_loopbreak(ecdata->ebase);
 }
@@ -132,7 +132,7 @@ void ReadCallback(evutil_socket_t fd, short what, void* data)
 void LoopInterruptCallback(evutil_socket_t fd, short what, void* data)
 {
     EventCallbackData* ecdata = (EventCallbackData*) data;
-    ecdata->type = INTERRUPT;
+    ecdata->type = EventType::INTERRUPT;
     event_base_loopbreak(ecdata->ebase);
 }
 

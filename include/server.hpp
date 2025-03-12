@@ -28,7 +28,7 @@ class ClientHandle
 {
 public:
     ClientHandle(Client& iclient, std::string_view teamname);
-    ClientHandle(AddressType a, FILE* ptr, uint32_t max_msg_len);
+    ClientHandle(ConnectionType conn_type, FILE* ptr, uint32_t max_msg_len);
     ClientHandle(const ClientHandle& other) = delete;
     ClientHandle(ClientHandle&& other) = delete;
     ClientHandle& operator=(ClientHandle&& other) = delete;
@@ -54,7 +54,7 @@ public:
     UEvent read_event;
     Client* client_ptr = nullptr; // Only for INTERNAL connections
 
-    AddressType atype;
+    ConnectionType conn_type;
     ClientPreferences preferences;
 
     int socket = -1;

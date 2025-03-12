@@ -40,12 +40,10 @@ using nlohmann::json;
 
 class Client;
 
-enum AddressType { UNIX, INTERNET, INTERNAL };
-enum MessageFormat { JSON = 0, MSGPACK = 1 };
-
-enum EventType { NEW_CONNECTION, READ_READY, TIMEOUT, INTERRUPT };
-
-enum LogLevel { DEBUG = 0, INFO = 1, WARNING = 2, SEVERE = 3 };
+enum class ConnectionType { UNIX, INTERNET, INTERNAL };
+enum class MessageFormat : uint8_t { JSON = 0, MSGPACK = 1 };
+enum class EventType { NEW_CONNECTION, READ_READY, TIMEOUT, INTERRUPT };
+enum class LogLevel { DEBUG = 0, INFO = 1, WARNING = 2, SEVERE = 3 };
 
 template<auto Deleter>
 struct LibeventDeleter
@@ -88,7 +86,7 @@ void from_json(const json& j, Message& msg);
 struct ClientPreferences
 {
     std::string teamname = "default";
-    MessageFormat format = MSGPACK;
+    MessageFormat format = MessageFormat::MSGPACK;
     uint32_t max_msg_length = DEFAULT_MAX_MESSAGE_LENGTH;
 };
 
@@ -110,7 +108,10 @@ inline const ValidationPair VERSION_CHECK = {
 
 inline const ValidationSeries VALIDATE_HANDSHAKE_SERVERSIDE = {
     { "/teamname"_json_pointer, predicates::NotEmpty },
-    { "/format"_json_pointer, predicates::Matches({ JSON, MSGPACK }) },
+    { "/format"_json_pointer, predicates::Matches({
+        MessageFormat::JSON, MessageFormat::MSGPACK
+      })
+    },
     { "/max-message-length"_json_pointer, [] (const json& j) { return j.is_number(); } },
     VERSION_CHECK
 };

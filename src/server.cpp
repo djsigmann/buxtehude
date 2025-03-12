@@ -13,15 +13,17 @@ namespace buxtehude
 {
 
 ClientHandle::ClientHandle(Client& iclient, std::string_view teamname)
-    : teamname(teamname), client_ptr(&iclient), atype(INTERNAL), connected(true)
+    : teamname(teamname), client_ptr(&iclient),
+      conn_type(ConnectionType::INTERNAL), connected(true)
 {}
 
-ClientHandle::ClientHandle(AddressType a, FILE* ptr, uint32_t max_msg_len) : atype(a)
+ClientHandle::ClientHandle(ConnectionType conn_type, FILE* ptr, uint32_t max_msg_len)
+    : conn_type(conn_type)
 {
     stream.file = ptr;
     stream.Await<uint8_t>().Await<uint32_t>()
           .Then([this, max_msg_len] (Stream& s, Field& f) {
-        auto type = f[-1].Get<uint8_t>();
+        auto type = f[-1].Get<MessageFormat>();
         if (type != MessageFormat::JSON && type != MessageFormat::MSGPACK) {
             s.Reset();
             Error("Invalid message type!");
@@ -60,7 +62,7 @@ void ClientHandle::Write(const Message& msg)
 {
     if (!connected) return;
 
-    if (atype == INTERNAL) {
+    if (conn_type == ConnectionType::INTERNAL) {
         client_ptr->Receive(msg);
         return;
     }
@@ -94,12 +96,12 @@ void ClientHandle::Disconnect(std::string_view reason)
 void ClientHandle::Disconnect_NoWrite()
 {
     if (!connected) return;
-    if (atype == UNIX || atype == INTERNET) {
+    if (conn_type == ConnectionType::UNIX || conn_type == ConnectionType::INTERNET) {
         fclose(stream.file);
     } else {
         client_ptr->Close();
     }
-    logger(DEBUG, fmt::format("Disconnecting client {}", teamname));
+    logger(LogLevel::DEBUG, fmt::format("Disconnecting client {}", teamname));
     connected = false;
 }
 
@@ -124,11 +126,11 @@ std::optional<Message> ClientHandle::Read()
     stream.Reset();
 
     try {
-        return { Message::Deserialise((MessageFormat)stream[0].Get<char>(), data) };
+        return { Message::Deserialise(stream[0].Get<MessageFormat>(), data) };
     } catch (const json::parse_error& e) {
         std::string error = fmt::format("Error parsing message from {}: {}", teamname,
             e.what());
-        logger(WARNING, error);
+        logger(LogLevel::WARNING, error);
         Error(error);
     }
 
@@ -176,7 +178,7 @@ bool Server::UnixServer(std::string_view path)
     );
 
     if (!unix_listener) {
-        logger(WARNING,
+        logger(LogLevel::WARNING,
             fmt::format("Failed to listen for UNIX domain connections at {}: {}",
                 path, strerror(errno)));
         unix_server = -1;
@@ -184,7 +186,7 @@ bool Server::UnixServer(std::string_view path)
     }
 
     unix_server = evconnlistener_get_fd(unix_listener.get());
-    logger(DEBUG, fmt::format("Listening on file {}", path));
+    logger(LogLevel::DEBUG, fmt::format("Listening on file {}", path));
 
     return true;
 }
@@ -208,7 +210,7 @@ bool Server::IPServer(uint16_t port)
     );
 
     if (!ip_listener) {
-        logger(WARNING,
+        logger(LogLevel::WARNING,
             fmt::format("Failed to listen for internet domain connections on port {}: {}",
                 port, strerror(errno)));
         ip_server = -1;
@@ -217,7 +219,7 @@ bool Server::IPServer(uint16_t port)
 
     ip_server = evconnlistener_get_fd(ip_listener.get());
 
-    logger(DEBUG, fmt::format("Listening on port {}", port));
+    logger(LogLevel::DEBUG, fmt::format("Listening on port {}", port));
 
     return true;
 }
@@ -237,7 +239,7 @@ void Server::Close()
 {
     if (!run) return;
     run = false;
-    logger(DEBUG, "Shutting down server");
+    logger(LogLevel::DEBUG, "Shutting down server");
     if (interrupt_event && current_thread.joinable()) {
         event_active(interrupt_event.get(), 0, 0);
         current_thread.join();
@@ -374,7 +376,7 @@ bool Server::SetupEvents()
     ebase = make<UEventBase>(event_base_new());
     callback_data.ebase = ebase.get();
     if (!ebase) {
-        logger(WARNING, "Failed to create event base");
+        logger(LogLevel::WARNING, "Failed to create event base");
         return false;
     }
 
@@ -391,12 +393,12 @@ void Server::Listen()
     while (event_base_dispatch(ebase.get()) == 0) {
         if (!run) break;
         switch (callback_data.type) {
-        case NEW_CONNECTION: {
+        case EventType::NEW_CONNECTION: {
             std::lock_guard<std::mutex> guard(clients_mutex);
             AddConnection(callback_data.fd, callback_data.address.sa_family);
             break;
         }
-        case READ_READY: {
+        case EventType::READ_READY: {
             ClientHandle* ch = nullptr;
             {
             std::lock_guard<std::mutex> guard(clients_mutex);
@@ -409,7 +411,7 @@ void Server::Listen()
 
             break;
         }
-        case TIMEOUT: {
+        case EventType::TIMEOUT: {
             Server::HandleIter iter = GetClientBySocket(callback_data.fd);
             if (iter == clients.end()) break;
             ClientHandle* ch = iter->get();
@@ -417,7 +419,7 @@ void Server::Listen()
             if (!ch->handshaken) ch->Disconnect("Failed handshake");
             break;
         }
-        case INTERRUPT:
+        case EventType::INTERRUPT:
             return;
         }
     }
@@ -427,9 +429,10 @@ void Server::AddConnection(int fd, sa_family_t addr_family)
 {
     FILE* stream = fdopen(fd, "r+");
 
-    AddressType atype = addr_family == AF_LOCAL ? UNIX : INTERNET;
+    ConnectionType conn_type = addr_family == AF_LOCAL ? ConnectionType::UNIX
+                                                       : ConnectionType::INTERNET;
     auto& cl = clients.emplace_back(
-        std::make_unique<ClientHandle>(atype, stream, max_msg_length)
+        std::make_unique<ClientHandle>(conn_type, stream, max_msg_length)
     );
 
     cl->read_event = make<UEvent>(
@@ -439,8 +442,8 @@ void Server::AddConnection(int fd, sa_family_t addr_family)
 
     event_add(cl->read_event.get(), &callbacks::DEFAULT_TIMEOUT);
 
-    logger(DEBUG, fmt::format("New client connected on {} domain, fd = {}",
-           atype == UNIX ? "UNIX" : "internet", fd));
+    logger(LogLevel::DEBUG, fmt::format("New client connected on {} domain, fd = {}",
+           conn_type == ConnectionType::UNIX ? "UNIX" : "internet", fd));
 }
 
 // ClientHandle iteration
@@ -460,7 +463,8 @@ Server::HandleIter Server::GetClientBySocket(int fd)
     );
 
     if (iter == clients.end())
-        logger(WARNING, fmt::format("No client with file descriptor {} found", fd));
+        logger(LogLevel::WARNING,
+            fmt::format("No client with file descriptor {} found", fd));
 
     return iter;
 }
@@ -474,7 +478,8 @@ Server::HandleIter Server::GetClientByPointer(Client* ptr)
     );
 
     if (iter == clients.end())
-        logger(WARNING, fmt::format("No client with pointer {} found", (void*)ptr));
+        logger(LogLevel::WARNING,
+            fmt::format("No client with pointer {} found", (void*)ptr));
 
     return iter;
 }
