@@ -31,7 +31,9 @@ void from_json(const json& j, Message& msg)
 
 void DefaultLog(LogLevel l, std::string_view message)
 {
-    const static char* LEVEL_NAMES[] = { "DEBUG", "INFO", "WARNING", "SEVERE" };
+    constexpr static std::string_view LEVEL_NAMES[] = {
+        "DEBUG", "INFO", "WARNING", "SEVERE"
+    };
     fmt::print("[{}] {}\n", LEVEL_NAMES[static_cast<size_t>(l)], message);
 }
 
@@ -48,7 +50,7 @@ void Initialise(LogCallback logcb, SignalHandler sigh)
 
     logger = logcb ? logcb : DefaultLog;
     event_set_log_callback([] (int severity, const char* msg) {
-        logger((LogLevel) severity, msg);
+        logger(static_cast<LogLevel>(severity), msg);
     });
 
     // UNIX domain connections being closed sends signal SIGPIPE to the process trying to
@@ -108,7 +110,7 @@ namespace callbacks
 void ConnectionCallback(evconnlistener* listener, evutil_socket_t fd,
     sockaddr* addr, int addr_len, void* data)
 {
-    EventCallbackData* ecdata = (EventCallbackData*) data;
+    EventCallbackData* ecdata = reinterpret_cast<EventCallbackData*>(data);
 
     ecdata->fd = fd;
     ecdata->address = *addr;
@@ -120,7 +122,7 @@ void ConnectionCallback(evconnlistener* listener, evutil_socket_t fd,
 
 void ReadCallback(evutil_socket_t fd, short what, void* data)
 {
-    EventCallbackData* ecdata = (EventCallbackData*) data;
+    EventCallbackData* ecdata = reinterpret_cast<EventCallbackData*>(data);
 
     ecdata->fd = fd;
     if (what & EV_READ) ecdata->type = EventType::READ_READY;
@@ -131,7 +133,7 @@ void ReadCallback(evutil_socket_t fd, short what, void* data)
 
 void LoopInterruptCallback(evutil_socket_t fd, short what, void* data)
 {
-    EventCallbackData* ecdata = (EventCallbackData*) data;
+    EventCallbackData* ecdata = reinterpret_cast<EventCallbackData*>(data);
     ecdata->type = EventType::INTERRUPT;
     event_base_loopbreak(ecdata->ebase);
 }

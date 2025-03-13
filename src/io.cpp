@@ -43,7 +43,7 @@ bool Stream::Read()
     done = false;
     while (true) {
         if (fields.empty()) {
-            status = STREAM_OKAY;
+            status = StreamStatus::OKAY;
             return true;
         }
 
@@ -54,11 +54,12 @@ bool Stream::Read()
         // don't care about vector::size() anyways. cppreference says data()
         // "may or may not" return nullptr. I think reserve() should guarantee
         // a valid data pointer given no allocation failure.
-        size_t bytes_read = fread((uint8_t*)current->data.data() + data_offset, 1,
-                                  expected, file);
+        size_t bytes_read
+            = fread(reinterpret_cast<uint8_t*>(current->data.data()) + data_offset, 1,
+                    expected, file);
 
-        if (feof(file)) status = REACHED_EOF;
-        else status = STREAM_OKAY;
+        if (feof(file)) status = StreamStatus::REACHED_EOF;
+        else status = StreamStatus::OKAY;
 
         data_offset += bytes_read;
         if (data_offset < current->length) return false;

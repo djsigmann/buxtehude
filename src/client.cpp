@@ -34,10 +34,10 @@ bool Client::IPConnect(std::string_view hostname, uint16_t port)
     }
 
     client_socket = socket(res->ai_family, res->ai_socktype, 0);
-    sockaddr_in* addr = ((sockaddr_in*)res->ai_addr);
+    sockaddr_in* addr = reinterpret_cast<sockaddr_in*>(res->ai_addr);
     addr->sin_port = htons(port);
 
-    if (connect(client_socket, (sockaddr*)addr, sizeof(sockaddr_in))) {
+    if (connect(client_socket, reinterpret_cast<sockaddr*>(addr), sizeof(sockaddr_in))) {
         logger(LogLevel::WARNING, fmt::format("Failed to connect to address {}: {}",
             hostname, strerror(errno)));
         return false;
@@ -66,7 +66,7 @@ bool Client::UnixConnect(std::string_view path)
     memcpy(addr.sun_path, path.data(), path_len);
     addr.sun_path[path_len] = '\0';
 
-    if (connect(client_socket, (sockaddr*)&addr, sizeof(sockaddr_un))) {
+    if (connect(client_socket, reinterpret_cast<sockaddr*>(&addr), sizeof(sockaddr_un))) {
         logger(LogLevel::WARNING, fmt::format("Failed to connect to file {}: {}",
             path, strerror(errno)));
         return false;
@@ -241,7 +241,7 @@ bool Client::SetupEvents()
 
     read_event = make<UEvent>(
         event_new(ebase.get(), client_socket, EV_PERSIST | EV_READ,
-                  callbacks::ReadCallback, (void*)&callback_data)
+                  callbacks::ReadCallback, reinterpret_cast<void*>(&callback_data))
     );
     interrupt_event = make<UEvent>(
         event_new(ebase.get(), -1, EV_PERSIST,
@@ -275,19 +275,16 @@ bool Client::SetupEvents()
 void Client::Read()
 {
     if (!stream.Read()) {
-        if (stream.Status() == REACHED_EOF) Close();
+        if (stream.Status() == StreamStatus::REACHED_EOF) Close();
         return;
     }
 
     std::string_view data = stream[2].GetView();
 
     try {
-        Message message = Message::Deserialise((MessageFormat)stream[0].Get<char>(),
-            data);
-        HandleMessage(message);
+        HandleMessage(Message::Deserialise(stream[0].Get<MessageFormat>(), data));
     } catch (const json::parse_error& e) {
-        std::string error = fmt::format("Error parsing message: {}", e.what());
-        logger(LogLevel::WARNING, error);
+        logger(LogLevel::WARNING, fmt::format("Error parsing message: {}", e.what()));
     }
 
     stream.Delete(stream[2]);

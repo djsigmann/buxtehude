@@ -15,19 +15,19 @@ int main()
         FILE* file = fmemopen(buffer, sizeof(buffer), "r");
 
         Stream stream(file);
-        assert(stream.Status() == buxtehude::STREAM_OKAY);
+        assert(stream.Status() == buxtehude::StreamStatus::OKAY);
 
         stream.Await(sizeof(buffer));
         assert(stream.Read() == true);
         assert(stream.Done() == true);
-        assert(stream.Status() == buxtehude::STREAM_OKAY);
+        assert(stream.Status() == buxtehude::StreamStatus::OKAY);
 
         auto [data, size] = stream[0].GetPtr<char>();
         assert(size == sizeof(buffer));
         assert(strcmp(buffer, data) == 0);
 
         assert(stream.Read() == false);
-        assert(stream.Status() == buxtehude::REACHED_EOF);
+        assert(stream.Status() == buxtehude::StreamStatus::REACHED_EOF);
 
         fclose(file);
     }
@@ -43,7 +43,7 @@ int main()
         stream.Await<uint16_t>().Await<uint16_t>()
             .Then([&pair1, &pair2] (Stream& s, Field& f) {
                 pair1 = f.Get<uint16_t>() + f[-1].Get<uint16_t>();
-                s.Finally([&pair1, &pair2] (Stream& s, Field& f) {
+                s.Finally([&pair2] (Stream& s, Field& f) {
                     pair2 = f.Get<uint16_t>() + f[-1].Get<uint16_t>();
                 });
             }
@@ -72,13 +72,13 @@ int main()
         });
 
         assert(stream.Read() == false);
-        assert(stream.Status() == buxtehude::REACHED_EOF);
+        assert(stream.Status() == buxtehude::StreamStatus::REACHED_EOF);
 
         fclose(file);
 
         file = fmemopen(buf2, sizeof(buf2), "r");
         assert(stream.Read() == true);
-        assert(stream.Status() == buxtehude::STREAM_OKAY);
+        assert(stream.Status() == buxtehude::StreamStatus::OKAY);
 
         assert(strcmp("Dietrich Buxtehude", str.c_str()) == 0);
 

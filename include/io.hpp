@@ -14,9 +14,9 @@ class Stream;
 using Callback = std::function<void(Stream&, Field&)>;
 using FieldIterator = std::list<Field>::iterator;
 
-enum StreamStatus
+enum class StreamStatus
 {
-    REACHED_EOF, STREAM_OKAY
+    REACHED_EOF, OKAY
 };
 
 struct Field
@@ -29,17 +29,17 @@ struct Field
     Field(size_t length) : length(length) { data.reserve(length); }
 
     template<typename T>
-    T Get() { return *(T*) data.data(); }
+    T Get() { return *reinterpret_cast<T*>(data.data()); }
 
     template<typename T>
     std::pair<const T*, size_t> GetPtr()
     {
-        return { (const T*) data.data(), length };
+        return { reinterpret_cast<const T*>(data.data()), length };
     }
 
     std::string_view GetView()
     {
-        return { (const char*) data.data(), length };
+        return { reinterpret_cast<const char*>(data.data()), length };
     }
 
     Field& operator[](int offset);
@@ -98,7 +98,7 @@ private:
     std::list<Field> fields, deleted;
     FieldIterator current = fields.end();
     size_t data_offset = 0;
-    StreamStatus status = STREAM_OKAY;
+    StreamStatus status = StreamStatus::OKAY;
     bool done = false;
 };
 

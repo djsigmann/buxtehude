@@ -115,7 +115,7 @@ bool ClientHandle::Available(std::string_view type)
 std::optional<Message> ClientHandle::Read()
 {
     if (!stream.Read()) {
-        if (stream.Status() == REACHED_EOF) Disconnect();
+        if (stream.Status() == StreamStatus::REACHED_EOF) Disconnect();
         return {};
     }
 
@@ -174,7 +174,7 @@ bool Server::UnixServer(std::string_view path)
     unix_listener = make<UEvconnListener>(
         evconnlistener_new_bind(ebase.get(), callbacks::ConnectionCallback,
                                 &callback_data, LEV_OPT_CLOSE_ON_FREE,
-                                -1, (sockaddr*)&addr, sizeof(addr))
+                                -1, reinterpret_cast<sockaddr*>(&addr), sizeof(addr))
     );
 
     if (!unix_listener) {
@@ -206,7 +206,7 @@ bool Server::IPServer(uint16_t port)
         evconnlistener_new_bind(ebase.get(), callbacks::ConnectionCallback,
                                 &callback_data,
                                 LEV_OPT_REUSEABLE | LEV_OPT_CLOSE_ON_FREE, -1,
-                                (sockaddr*)&addr, sizeof(addr))
+                                reinterpret_cast<sockaddr*>(&addr), sizeof(addr))
     );
 
     if (!ip_listener) {
@@ -437,7 +437,7 @@ void Server::AddConnection(int fd, sa_family_t addr_family)
 
     cl->read_event = make<UEvent>(
         event_new(ebase.get(), fd, EV_PERSIST | EV_READ,
-                  callbacks::ReadCallback, (void*)&callback_data)
+                  callbacks::ReadCallback, &callback_data)
     );
 
     event_add(cl->read_event.get(), &callbacks::DEFAULT_TIMEOUT);
@@ -479,7 +479,8 @@ Server::HandleIter Server::GetClientByPointer(Client* ptr)
 
     if (iter == clients.end())
         logger(LogLevel::WARNING,
-            fmt::format("No client with pointer {} found", (void*)ptr));
+            fmt::format("No client with pointer {} found",
+                        reinterpret_cast<void*>(ptr)));
 
     return iter;
 }
