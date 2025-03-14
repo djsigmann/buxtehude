@@ -2,6 +2,7 @@
 
 #include "server.hpp"
 #include "core.hpp"
+#include "tb.hpp"
 
 #include <fmt/core.h>
 
@@ -13,25 +14,28 @@ Client::~Client()
     Close();
 }
 
+Client::Client(const ClientPreferences& preferences) : preferences(preferences) {}
+
 // Connection setup functions
 
-bool Client::IPConnect(std::string_view hostname, uint16_t port)
+tb::error<ConnectError> Client::IPConnect(std::string_view hostname, uint16_t port)
 {
-    if (setup) return true;
+    if (setup) return tb::ok_t {};
+
     addrinfo* res;
     addrinfo hints {
         .ai_flags = AI_DEFAULT, .ai_family = PF_INET,
         .ai_socktype = SOCK_STREAM
     };
 
-    int gai_error;
-    if ((gai_error = getaddrinfo(hostname.data(), nullptr, &hints, &res))) {
+    if (int gai_error = getaddrinfo(hostname.data(), nullptr, &hints, &res)) {
         logger(LogLevel::WARNING,
             fmt::format("Failed to connect to address {}: getaddrinfo failed: {}",
                 hostname, gai_strerror(gai_error)));
-        freeaddrinfo(res);
-        return false;
+        return ConnectError { ConnectErrorType::GETADDRINFO_ERROR, gai_error };
     }
+
+    tb::scoped_guard addrinfo_guard = [res] () { freeaddrinfo(res); };
 
     client_socket = socket(res->ai_family, res->ai_socktype, 0);
     sockaddr_in* addr = reinterpret_cast<sockaddr_in*>(res->ai_addr);
@@ -40,23 +44,28 @@ bool Client::IPConnect(std::string_view hostname, uint16_t port)
     if (connect(client_socket, reinterpret_cast<sockaddr*>(addr), sizeof(sockaddr_in))) {
         logger(LogLevel::WARNING, fmt::format("Failed to connect to address {}: {}",
             hostname, strerror(errno)));
-        return false;
+        return ConnectError { ConnectErrorType::CONNECT_ERROR, errno };
     }
 
-    freeaddrinfo(res);
+    if (SetupEvents().is_error())
+        return ConnectError { ConnectErrorType::LIBEVENT_ERROR, -1 };
 
-    if (!SetupEvents()) return false;
     conn_type = ConnectionType::INTERNET;
 
-    Handshake();
+    if (Handshake().is_error())
+        return ConnectError { ConnectErrorType::WRITE_ERROR, -1 };
 
-    return true;
+    return tb::ok_t {};
 }
 
-bool Client::UnixConnect(std::string_view path)
+tb::error<ConnectError> Client::UnixConnect(std::string_view path)
 {
-    if (setup) return true;
+    if (setup) return tb::ok_t {};
+
     client_socket = socket(PF_LOCAL, SOCK_STREAM, 0);
+    if (client_socket == -1) {
+        return ConnectError { ConnectErrorType::SOCKET_ERROR, errno };
+    }
 
     sockaddr_un addr;
     addr.sun_family = AF_LOCAL;
@@ -69,48 +78,49 @@ bool Client::UnixConnect(std::string_view path)
     if (connect(client_socket, reinterpret_cast<sockaddr*>(&addr), sizeof(sockaddr_un))) {
         logger(LogLevel::WARNING, fmt::format("Failed to connect to file {}: {}",
             path, strerror(errno)));
-        return false;
+        return ConnectError { ConnectErrorType::CONNECT_ERROR, errno };
     }
 
-    if (!SetupEvents()) return false;
+    if (SetupEvents().is_error())
+        return ConnectError { ConnectErrorType::LIBEVENT_ERROR, -1 };
+
     conn_type = ConnectionType::UNIX;
 
-    Handshake();
+    if (Handshake().is_error())
+        return ConnectError { ConnectErrorType::WRITE_ERROR, -1 };
 
-    return true;
+    return tb::ok_t {};
 }
 
-bool Client::InternalConnect(Server& server)
+void Client::InternalConnect(Server& server)
 {
-    if (setup) return true;
+    if (setup) return;
     server_ptr = &server;
     server.AddClient(*this);
     setup = true;
     conn_type = ConnectionType::INTERNAL;
 
-    Handshake();
-
-    return true;
+    [[maybe_unused]] auto _ = Handshake(); // Internal handshakes do not have a fail path
 }
 
 // General functions applicable to all types of Client
 
-void Client::Write(const Message& msg)
+tb::error<WriteError> Client::Write(const Message& msg)
 {
     if (conn_type == ConnectionType::INTERNAL) {
         server_ptr->Receive(*this, msg);
-        return;
-    }
-
-    if (!Message::WriteToStream(stream.file, msg, preferences.format)) {
+    } else if (!Message::WriteToStream(stream.file, msg, preferences.format)) {
         logger(LogLevel::WARNING, "Failed to write - closing connection");
         Close();
+        return WriteError {};
     }
+
+    return tb::ok_t {};
 }
 
-void Client::Handshake()
+tb::error<WriteError> Client::Handshake()
 {
-    Write({
+    bool success = Write({
         .type { MSG_HANDSHAKE },
         .content = {
             { "format", preferences.format },
@@ -118,7 +128,9 @@ void Client::Handshake()
             { "version", CURRENT_VERSION },
             { "max-message-length", preferences.max_msg_length }
         }
-    });
+    }).is_ok();
+
+    if (!success) return WriteError {};
 
     AddHandler(MSG_HANDSHAKE, [] (Client& c, const Message& m) {
         if (!ValidateJSON(m.content, VALIDATE_HANDSHAKE_CLIENTSIDE)) {
@@ -139,11 +151,13 @@ void Client::Handshake()
         logger(LogLevel::INFO, fmt::format("Error message from server: {}",
                m.content.get<std::string>()));
     });
+
+    return tb::ok_t {};
 }
 
-void Client::SetAvailable(std::string_view type, bool available)
+tb::error<WriteError> Client::SetAvailable(std::string_view type, bool available)
 {
-    Write({
+    return Write({
         .type { MSG_AVAILABLE },
         .content = {
             { "type", type },
@@ -229,24 +243,25 @@ void Client::Receive(const Message& msg)
 
 // Socket-based connections only
 
-bool Client::SetupEvents()
+tb::error<AllocError> Client::SetupEvents()
 {
     ebase = make<UEventBase>(event_base_new());
-
     callback_data.ebase = ebase.get();
-    if (!ebase) {
-        logger(LogLevel::WARNING, "Failed to create event base");
-        return false;
-    }
 
     read_event = make<UEvent>(
         event_new(ebase.get(), client_socket, EV_PERSIST | EV_READ,
                   callbacks::ReadCallback, reinterpret_cast<void*>(&callback_data))
     );
+
     interrupt_event = make<UEvent>(
         event_new(ebase.get(), -1, EV_PERSIST,
                   callbacks::LoopInterruptCallback, &callback_data)
     );
+
+    if (!ebase || !read_event || !interrupt_event) {
+        logger(LogLevel::WARNING, "Failed to create one or more libevent structures");
+        return AllocError {};
+    }
 
     event_add(read_event.get(), &callbacks::DEFAULT_TIMEOUT);
 
@@ -269,7 +284,7 @@ bool Client::SetupEvents()
 
     preferences.format = MessageFormat::MSGPACK;
     setup = true;
-    return true;
+    return tb::ok_t {};
 }
 
 void Client::Read()

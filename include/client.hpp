@@ -2,6 +2,7 @@
 
 #include "core.hpp"
 #include "io.hpp"
+#include "tb.hpp"
 
 #include <atomic>
 #include <queue>
@@ -27,14 +28,14 @@ public:
     Client(const ClientPreferences& preferences);
     ~Client();
 
-    bool IPConnect(std::string_view hostname, uint16_t port);
-    bool UnixConnect(std::string_view path);
-    bool InternalConnect(Server& server);
+    tb::error<ConnectError> IPConnect(std::string_view hostname, uint16_t port);
+    tb::error<ConnectError> UnixConnect(std::string_view path);
+    void InternalConnect(Server& server);
 
     // Applicable to all types of Client
-    void Write(const Message& msg);
-    void Handshake();
-    void SetAvailable(std::string_view type, bool available);
+    tb::error<WriteError> Write(const Message& msg);
+    tb::error<WriteError> Handshake();
+    tb::error<WriteError> SetAvailable(std::string_view type, bool available);
 
     void AddHandler(std::string_view type, Handler&& h);
     void EraseHandler(const std::string& type);
@@ -50,7 +51,7 @@ private: // Only for INTERNAL clients
     void Receive(const Message& msg);
 private:
     // Only for socket-based connections
-    bool SetupEvents();
+    tb::error<AllocError> SetupEvents();
     void Read();
     void Listen();
 

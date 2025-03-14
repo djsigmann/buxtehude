@@ -7,7 +7,7 @@
 namespace buxtehude
 {
 
-// Making up for lack of C++23/26 span & range features
+// Making up for lack of C++23/26 std::span, std::ranges & std::expected features
 namespace tb
 {
 
@@ -42,6 +42,88 @@ constexpr auto operator|(Range&& range, ptr_vec_dummy<T>&&)
         } else return &obj;
     }) | range_to<std::vector<T*>>();
 }
+
+template<typename Lambda> requires std::invocable<Lambda>
+struct scoped_guard
+{
+    Lambda lambda;
+    scoped_guard(Lambda&& lambda) : lambda(std::move(lambda)) {}
+    ~scoped_guard() { lambda(); }
+};
+
+template<typename R, typename E>
+struct [[nodiscard]] result
+{
+private:
+    union {
+        R value;
+        E err;
+    };
+    bool is_err;
+public:
+    result(const R& value) : value(value), is_err(false) {}
+    result(const E& err) : err(err), is_err(true) {}
+
+    bool is_error() const { return is_err; }
+    bool is_ok() const { return !is_err; }
+
+    template<typename Callable>
+    const result& if_ok(Callable&& cb) const
+    {
+        if (!is_err) cb(value);
+        return *this;
+    }
+
+    template<typename Callable>
+    const result& if_err(Callable&& cb) const
+    {
+        if (is_err) cb(err);
+        return *this;
+    }
+
+    R& get_or(R&& alternative) const
+    {
+        return is_err ? alternative : value;
+    }
+
+    R& get() { return value; }
+    const E& get_error() { return err; }
+    ~result() { if (!is_err) value.~R(); }
+};
+
+struct ok_t {};
+
+template<typename E>
+struct [[nodiscard]] result<void, E>
+{
+private:
+    E err;
+    bool is_err = false;
+public:
+    result() = delete;
+    result(ok_t) : is_err(false) {}
+    result(const E& err) : err(err), is_err(true) {}
+
+    bool is_error() const { return is_err; }
+    bool is_ok() const { return !is_err; }
+
+    template<typename Callable>
+    const result& if_ok(Callable&& cb) const
+    {
+        if (!is_err) cb();
+        return *this;
+    }
+
+    template<typename Callable>
+    const result& if_err(Callable&& cb) const
+    {
+        if (is_err) cb(err);
+        return *this;
+    }
+};
+
+template<typename E>
+using error = result<void, E>;
 
 } // namespace tb
 

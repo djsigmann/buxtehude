@@ -45,6 +45,33 @@ enum class MessageFormat : uint8_t { JSON = 0, MSGPACK = 1 };
 enum class EventType { NEW_CONNECTION, READ_READY, TIMEOUT, INTERRUPT };
 enum class LogLevel { DEBUG = 0, INFO = 1, WARNING = 2, SEVERE = 3 };
 
+enum class ConnectErrorType
+{
+    GETADDRINFO_ERROR, CONNECT_ERROR, LIBEVENT_ERROR, SOCKET_ERROR,
+    WRITE_ERROR
+};
+
+struct ConnectError
+{
+    ConnectErrorType type;
+    int code;
+};
+
+enum class ListenErrorType
+{
+    LIBEVENT_ERROR, BIND_ERROR
+};
+
+struct ListenError
+{
+    ListenErrorType type;
+    int code;
+};
+
+struct WriteError {};
+struct AllocError {};
+enum class ReadError { PARSE_ERROR, CONNECTION_ERROR };
+
 template<auto Deleter>
 struct LibeventDeleter
 {

@@ -40,35 +40,37 @@ ClientHandle::ClientHandle(ConnectionType conn_type, FILE* ptr, uint32_t max_msg
 
     socket = fileno(ptr);
     connected = true;
-
-    Handshake();
+    if (Handshake().is_error()) Disconnect_NoWrite();
 }
 
 ClientHandle::~ClientHandle() { Disconnect(); }
 
 // Common ClientHandle functions
 
-void ClientHandle::Handshake()
+tb::error<WriteError> ClientHandle::Handshake()
 {
-    Write({
+    auto result = Write({
         .type { MSG_HANDSHAKE },
         .content = {
             { "version", CURRENT_VERSION }
         }
     });
+
+    if (result.is_error()) Disconnect_NoWrite();
+    return result;
 }
 
-void ClientHandle::Write(const Message& msg)
+tb::error<WriteError> ClientHandle::Write(const Message& msg)
 {
-    if (!connected) return;
+    if (!connected) return WriteError {};
 
     if (conn_type == ConnectionType::INTERNAL) {
         client_ptr->Receive(msg);
-        return;
+    } else if (!Message::WriteToStream(stream.file, msg, preferences.format)) {
+        return WriteError {};
     }
 
-    if (!Message::WriteToStream(stream.file, msg, preferences.format))
-        Disconnect_NoWrite();
+    return tb::ok_t {};
 }
 
 void ClientHandle::Error(std::string_view errstr)
@@ -76,14 +78,14 @@ void ClientHandle::Error(std::string_view errstr)
     if (time(nullptr) - last_error < 1) return;
     last_error = time(nullptr);
 
-    Write({ .type { MSG_ERROR }, .content = errstr });
-    if (!handshaken) Disconnect("Failed handshake");
+    bool success = Write({ .type { MSG_ERROR }, .content = errstr }).is_ok();
+    if (!handshaken || !success) Disconnect("Failed handshake");
 }
 
 void ClientHandle::Disconnect(std::string_view reason)
 {
     if (!connected) return;
-    Write({
+    [[maybe_unused]] auto _ = Write({
         .type { MSG_DISCONNECT },
         .content = {
             { "reason", reason },
@@ -112,11 +114,11 @@ bool ClientHandle::Available(std::string_view type)
 
 // ClientHandle functions specific to stream-based connections
 
-std::optional<Message> ClientHandle::Read()
+tb::result<Message, ReadError> ClientHandle::Read()
 {
     if (!stream.Read()) {
         if (stream.Status() == StreamStatus::REACHED_EOF) Disconnect();
-        return {};
+        return { ReadError::CONNECTION_ERROR };
     }
 
     std::string_view data = stream[2].GetView();
@@ -134,21 +136,11 @@ std::optional<Message> ClientHandle::Read()
         Error(error);
     }
 
-    return {};
+    return { ReadError::PARSE_ERROR };
 }
 
 // Server
 // Server constructors & destructor
-
-Server::Server(std::string_view path)
-{
-    UnixServer(path);
-}
-
-Server::Server(uint16_t port)
-{
-    IPServer(port);
-}
 
 Server::~Server()
 {
@@ -157,8 +149,11 @@ Server::~Server()
 
 // Listening socket setup
 
-bool Server::UnixServer(std::string_view path)
+tb::error<ListenError> Server::UnixServer(std::string_view path)
 {
+    if (SetupEvents().is_error())
+        return ListenError { ListenErrorType::LIBEVENT_ERROR, -1 };
+
     sockaddr_un addr;
     addr.sun_family = PF_LOCAL;
 
@@ -168,8 +163,6 @@ bool Server::UnixServer(std::string_view path)
     addr.sun_path[path_len] = '\0';
 
     unix_path = addr.sun_path;
-
-    if (!SetupEvents()) return false;
 
     unix_listener = make<UEvconnListener>(
         evconnlistener_new_bind(ebase.get(), callbacks::ConnectionCallback,
@@ -182,24 +175,25 @@ bool Server::UnixServer(std::string_view path)
             fmt::format("Failed to listen for UNIX domain connections at {}: {}",
                 path, strerror(errno)));
         unix_server = -1;
-        return false;
+        return ListenError { ListenErrorType::BIND_ERROR, errno };
     }
 
     unix_server = evconnlistener_get_fd(unix_listener.get());
     logger(LogLevel::DEBUG, fmt::format("Listening on file {}", path));
 
-    return true;
+    return tb::ok_t {};
 }
 
-bool Server::IPServer(uint16_t port)
+tb::error<ListenError> Server::IPServer(uint16_t port)
 {
+    if (SetupEvents().is_error())
+        return ListenError { ListenErrorType::LIBEVENT_ERROR, -1 };
+
     sockaddr_in addr = {0};
     addr.sin_family = PF_INET;
     addr.sin_port = htons(port);
 
     if (INADDR_ANY) addr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-    if (!SetupEvents()) return false;
 
     // Passing -1 as the backlog allows libevent to try select an optimal backlog number.
     ip_listener = make<UEvconnListener>(
@@ -214,14 +208,14 @@ bool Server::IPServer(uint16_t port)
             fmt::format("Failed to listen for internet domain connections on port {}: {}",
                 port, strerror(errno)));
         ip_server = -1;
-        return false;
+        return ListenError { ListenErrorType::BIND_ERROR, errno };
     }
 
     ip_server = evconnlistener_get_fd(ip_listener.get());
 
     logger(LogLevel::DEBUG, fmt::format("Listening on port {}", port));
 
-    return true;
+    return tb::ok_t {};
 }
 
 // Server initialisation & threaded logic
@@ -255,7 +249,9 @@ void Server::Close()
 
 void Server::Broadcast(const Message& m)
 {
-    for (ClientHandle* cl : GetClients(MSG_ALL)) cl->Write(m);
+    for (ClientHandle* cl : GetClients(MSG_ALL)) {
+        if (cl->Write(m).is_error()) cl->Disconnect_NoWrite();
+    }
 }
 
 // Server connection management
@@ -267,7 +263,7 @@ void Server::AddClient(Client& cl)
     auto& ch = clients.emplace_back(
         std::make_unique<ClientHandle>(cl, cl.preferences.teamname)
     );
-    ch->Handshake();
+    if (ch->Handshake().is_error()) ch->Disconnect_NoWrite();
 }
 
 void Server::RemoveClient(Client& cl)
@@ -303,8 +299,8 @@ void Server::Receive(Client& cl, const Message& msg)
 
 void Server::Serve(ClientHandle* ch)
 {
-    std::optional<Message> message = ch->Read();
-    if (message) HandleMessage(ch, std::move(message.value()));
+    tb::result<Message, ReadError> message = ch->Read();
+    if (message.is_ok()) HandleMessage(ch, std::move(message.get()));
 
     if (!ch->connected) {
         std::string teamname = std::move(ch->teamname);
@@ -359,33 +355,39 @@ void Server::HandleMessage(ClientHandle* ch, Message&& msg)
     msg.src = ch->teamname;
     if (msg.only_first) {
         ClientHandle* destination = GetFirstAvailable(msg.dest, msg.type, ch);
-        if (destination) destination->Write(msg);
+        if (destination) {
+            if (destination->Write(msg).is_error()) destination->Disconnect_NoWrite();
+        }
         return;
     }
 
-    for (ClientHandle* destination : GetClients_NoLock(msg.dest))
-        if (destination != ch) destination->Write(msg);
+    for (ClientHandle* destination : GetClients_NoLock(msg.dest)) {
+        if (destination != ch) {
+            if (destination->Write(msg).is_error()) destination->Disconnect_NoWrite();
+        }
+    }
 }
 
 // Libevent setup
 
-bool Server::SetupEvents()
+tb::error<AllocError> Server::SetupEvents()
 {
-    if (ebase) return true;
+    if (ebase) return tb::ok_t {};
 
     ebase = make<UEventBase>(event_base_new());
     callback_data.ebase = ebase.get();
-    if (!ebase) {
-        logger(LogLevel::WARNING, "Failed to create event base");
-        return false;
-    }
 
     interrupt_event = make<UEvent>(
         event_new(ebase.get(), -1, EV_PERSIST, callbacks::LoopInterruptCallback,
                   &callback_data)
     );
 
-    return true;
+    if (!ebase || !interrupt_event) {
+        logger(LogLevel::WARNING, "Failed to create event base");
+        return AllocError {};
+    }
+
+    return tb::ok_t {};
 }
 
 void Server::Listen()

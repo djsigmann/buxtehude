@@ -2,6 +2,7 @@
 
 #include "core.hpp"
 #include "io.hpp"
+#include "tb.hpp"
 
 #include <ctime>
 
@@ -35,8 +36,8 @@ public:
     ~ClientHandle();
 
     // Applicable to all types of ClientHandle
-    void Handshake();
-    void Write(const Message& m);
+    tb::error<WriteError> Handshake();
+    tb::error<WriteError> Write(const Message& m);
     void Error(std::string_view errstr);
     void Disconnect(std::string_view reason="Disconnected by server");
     void Disconnect_NoWrite();
@@ -44,7 +45,7 @@ public:
     bool Available(std::string_view type);
 
     // Try to read a message from the socket - only for INTERNET/UNIX
-    std::optional<Message> Read();
+    tb::result<Message, ReadError> Read();
 private:
     Stream stream; // Only for UNIX/INTERNET
     std::time_t last_error = 0;
@@ -68,15 +69,13 @@ class Server
 public:
     Server() = default;
     Server(const Server& other) = delete;
-    Server(std::string_view path); // UNIX server
-    Server(uint16_t port); // IP server
     ~Server();
 
     // Locks access to ClientHandle list.
     std::vector<ClientHandle*> GetClients(std::string_view team=MSG_ALL);
 
-    bool UnixServer(std::string_view path="buxtehude_unix");
-    bool IPServer(uint16_t port=DEFAULT_PORT);
+    tb::error<ListenError> UnixServer(std::string_view path="buxtehude_unix");
+    tb::error<ListenError> IPServer(uint16_t port=DEFAULT_PORT);
 
     void Run();
     void Close();
@@ -96,7 +95,7 @@ private:
     void HandleMessage(ClientHandle* ch, Message&& msg);
 
     // Only if listening sockets are opened
-    bool SetupEvents();
+    tb::error<AllocError> SetupEvents();
     void Listen();
     void AddConnection(int fd, sa_family_t addr_type);
 
