@@ -300,7 +300,7 @@ void Server::Receive(Client& cl, const Message& msg)
 void Server::Serve(ClientHandle* ch)
 {
     tb::result<Message, ReadError> message = ch->Read();
-    if (message.is_ok()) HandleMessage(ch, std::move(message.get()));
+    if (message.is_ok()) HandleMessage(ch, std::move(message.get_mut_unchecked()));
 
     if (!ch->connected) {
         std::string teamname = std::move(ch->teamname);
