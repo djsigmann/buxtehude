@@ -137,6 +137,9 @@ int main()
 
     using namespace std::chrono_literals;
 
+    fmt::print("Sleeping for 1s...\n");
+    std::this_thread::sleep_for(1s);
+
     client_ip.Write({
         .type = "ping", .dest = "internal-client",
         .content = {
@@ -147,9 +150,8 @@ int main()
         fail_test();
     });
 
-    fmt::print("Sleeping for 2s...\n");
-
-    std::this_thread::sleep_for(2s);
+    fmt::print("Sleeping for 1s...\n");
+    std::this_thread::sleep_for(1s);
 
     assert(ip_got_pong && unix_got_ping);
     fmt::print("Test ({}) completed successfully\n", __FILE__);
