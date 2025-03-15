@@ -97,10 +97,10 @@ bool Message::WriteToStream(FILE* stream, const Message& message, MessageFormat 
 {
     std::string data = message.Serialise(f);
     uint32_t len = data.size();
-    uint8_t format = static_cast<uint8_t>(f);
-    fwrite(&format, sizeof(uint8_t), 1, stream);
+    fwrite(&f, sizeof(MessageFormat), 1, stream);
     fwrite(&len, sizeof(uint32_t), 1, stream);
     fwrite(data.data(), len, 1, stream);
+
     return !fflush(stream);
 }
 

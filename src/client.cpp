@@ -313,6 +313,7 @@ void Client::Listen()
         switch (callback_data.type) {
         case EventType::READ_READY:
             Read();
+            break;
         case EventType::INTERRUPT: return;
         default:
             break;

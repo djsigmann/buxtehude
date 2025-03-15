@@ -15,6 +15,8 @@
 #include <sys/types.h>
 #include <sys/un.h>
 
+#include <fmt/core.h>
+
 #include "validate.hpp"
 
 namespace buxtehude
@@ -55,6 +57,22 @@ struct ConnectError
 {
     ConnectErrorType type;
     int code;
+
+    std::string What() const
+    {
+        switch (type) {
+        case ConnectErrorType::GETADDRINFO_ERROR:
+            return fmt::format("getaddrinfo error: {}", gai_strerror(code));
+        case ConnectErrorType::CONNECT_ERROR:
+            return fmt::format("connect error: {}", strerror(code));
+        case ConnectErrorType::LIBEVENT_ERROR:
+            return "libevent structure initialisation error";
+        case ConnectErrorType::SOCKET_ERROR:
+            return fmt::format("socket error: {}", strerror(code));
+        case ConnectErrorType::WRITE_ERROR:
+            return fmt::format("handshake write error");
+        }
+    }
 };
 
 enum class ListenErrorType
@@ -66,6 +84,16 @@ struct ListenError
 {
     ListenErrorType type;
     int code;
+
+    std::string What() const
+    {
+        switch (type) {
+        case ListenErrorType::LIBEVENT_ERROR:
+            return "libevent structure initialisation error";
+        case ListenErrorType::BIND_ERROR:
+            return fmt::format("bind error: {}", strerror(code));
+        }
+    }
 };
 
 struct WriteError {};

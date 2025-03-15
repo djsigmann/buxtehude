@@ -51,7 +51,6 @@ private:
     std::time_t last_error = 0;
 public:
     std::vector<std::string> unavailable;
-    std::string teamname = "$$unauthorised";
     UEvent read_event;
     Client* client_ptr = nullptr; // Only for INTERNAL connections
 

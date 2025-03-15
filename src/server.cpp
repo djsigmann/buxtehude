@@ -13,9 +13,10 @@ namespace buxtehude
 {
 
 ClientHandle::ClientHandle(Client& iclient, std::string_view teamname)
-    : teamname(teamname), client_ptr(&iclient),
-      conn_type(ConnectionType::INTERNAL), connected(true)
-{}
+    : client_ptr(&iclient), conn_type(ConnectionType::INTERNAL), connected(true)
+{
+    preferences.teamname = teamname;
+}
 
 ClientHandle::ClientHandle(ConnectionType conn_type, FILE* ptr, uint32_t max_msg_len)
     : conn_type(conn_type)
@@ -49,15 +50,12 @@ ClientHandle::~ClientHandle() { Disconnect(); }
 
 tb::error<WriteError> ClientHandle::Handshake()
 {
-    auto result = Write({
+    return Write({
         .type { MSG_HANDSHAKE },
         .content = {
             { "version", CURRENT_VERSION }
         }
     });
-
-    if (result.is_error()) Disconnect_NoWrite();
-    return result;
 }
 
 tb::error<WriteError> ClientHandle::Write(const Message& msg)
@@ -103,7 +101,8 @@ void ClientHandle::Disconnect_NoWrite()
     } else {
         client_ptr->Close();
     }
-    logger(LogLevel::DEBUG, fmt::format("Disconnecting client {}", teamname));
+    logger(LogLevel::DEBUG, fmt::format("Disconnecting client {}",
+        preferences.teamname));
     connected = false;
 }
 
@@ -130,8 +129,8 @@ tb::result<Message, ReadError> ClientHandle::Read()
     try {
         return { Message::Deserialise(stream[0].Get<MessageFormat>(), data) };
     } catch (const json::parse_error& e) {
-        std::string error = fmt::format("Error parsing message from {}: {}", teamname,
-            e.what());
+        std::string error = fmt::format("Error parsing message from {}: {}",
+            preferences.teamname, e.what());
         logger(LogLevel::WARNING, error);
         Error(error);
     }
@@ -303,7 +302,7 @@ void Server::Serve(ClientHandle* ch)
     if (message.is_ok()) HandleMessage(ch, std::move(message.get_mut_unchecked()));
 
     if (!ch->connected) {
-        std::string teamname = std::move(ch->teamname);
+        std::string teamname = std::move(ch->preferences.teamname);
         {
         std::lock_guard<std::mutex> guard(clients_mutex);
         std::erase_if(clients, [ch] (auto& unique_ptr) {
@@ -313,7 +312,7 @@ void Server::Serve(ClientHandle* ch)
         Broadcast({
             .type { MSG_DISCONNECT },
             .content = {
-                { "who", teamname }
+                { "who", ch->preferences.teamname }
             }
         });
     }
@@ -329,7 +328,7 @@ void Server::HandleMessage(ClientHandle* ch, Message&& msg)
             return;
         }
 
-        ch->teamname = msg.content["teamname"];
+        ch->preferences.teamname = msg.content["teamname"];
         ch->preferences.format = msg.content["format"];
         ch->handshaken = true;
         return;
@@ -352,7 +351,7 @@ void Server::HandleMessage(ClientHandle* ch, Message&& msg)
 
     if (msg.dest.empty()) return;
 
-    msg.src = ch->teamname;
+    msg.src = ch->preferences.teamname;
     if (msg.only_first) {
         ClientHandle* destination = GetFirstAvailable(msg.dest, msg.type, ch);
         if (destination) {
@@ -495,7 +494,7 @@ ClientHandle* Server::GetFirstAvailable(std::string_view team,
 
     for (auto it = clients.begin(); it != clients.end(); ++it) {
         ClientHandle* ch = it->get();
-        if ((ch->teamname == team || team == MSG_ALL) && ch != exclude)
+        if ((ch->preferences.teamname == team || team == MSG_ALL) && ch != exclude)
             result = ch;
         else continue;
         if (ch->Available(type)) return result;
@@ -509,7 +508,7 @@ std::vector<ClientHandle*> Server::GetClients_NoLock(std::string_view team)
     if (team == MSG_ALL) return clients | tb::ptr_vec<ClientHandle>();
 
     return clients | std::views::filter([team] (const auto& client) {
-        return client->teamname == team;
+        return client->preferences.teamname == team;
     }) | tb::ptr_vec<ClientHandle>();
 }
 
