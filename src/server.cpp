@@ -63,7 +63,7 @@ tb::error<WriteError> ClientHandle::Write(const Message& msg)
     if (!connected) return WriteError {};
 
     if (conn_type == ConnectionType::INTERNAL) {
-        client_ptr->Receive(msg);
+        client_ptr->Internal_Receive(msg);
     } else if (!Message::WriteToStream(stream.file, msg, preferences.format)) {
         return WriteError {};
     }
@@ -80,7 +80,7 @@ void ClientHandle::Error(std::string_view errstr)
     if (!handshaken || !success) Disconnect("Failed handshake");
 }
 
-void ClientHandle::Disconnect(std::string_view reason)
+void ClientHandle::Disconnect(std::string_view reason, bool internal_triggered)
 {
     if (!connected) return;
     [[maybe_unused]] auto _ = Write({
@@ -90,16 +90,16 @@ void ClientHandle::Disconnect(std::string_view reason)
             { "who", MSG_YOU }
         }
     });
-    Disconnect_NoWrite();
+    Disconnect_NoWrite(internal_triggered);
 }
 
-void ClientHandle::Disconnect_NoWrite()
+void ClientHandle::Disconnect_NoWrite(bool internal_triggered)
 {
     if (!connected) return;
     if (conn_type == ConnectionType::UNIX || conn_type == ConnectionType::INTERNET) {
         fclose(stream.file);
-    } else {
-        client_ptr->Close();
+    } else if (conn_type == ConnectionType::INTERNAL) {
+        client_ptr->Internal_Disconnect();
     }
     logger(LogLevel::DEBUG, fmt::format("Disconnecting client {}",
         preferences.teamname));
@@ -157,7 +157,7 @@ tb::error<ListenError> Server::UnixServer(std::string_view path)
     addr.sun_family = PF_LOCAL;
 
     size_t path_len = path.size() < sizeof(addr.sun_path) - 1 ?
-        path.size() : sizeof (addr.sun_path) - 1;
+        path.size() : sizeof(addr.sun_path) - 1;
     memcpy(addr.sun_path, path.data(), path_len);
     addr.sun_path[path_len] = '\0';
 
@@ -178,6 +178,8 @@ tb::error<ListenError> Server::UnixServer(std::string_view path)
     }
 
     unix_server = evconnlistener_get_fd(unix_listener.get());
+
+    Run();
     logger(LogLevel::DEBUG, fmt::format("Listening on file {}", path));
 
     return tb::ok_t {};
@@ -212,8 +214,17 @@ tb::error<ListenError> Server::IPServer(uint16_t port)
 
     ip_server = evconnlistener_get_fd(ip_listener.get());
 
+    Run();
     logger(LogLevel::DEBUG, fmt::format("Listening on port {}", port));
 
+    return tb::ok_t {};
+}
+
+tb::error<AllocError> Server::InternalServer()
+{
+    if (SetupEvents().is_error()) return AllocError {};
+
+    Run();
     return tb::ok_t {};
 }
 
@@ -221,34 +232,34 @@ tb::error<ListenError> Server::IPServer(uint16_t port)
 
 void Server::Run()
 {
-    if (unix_listener || ip_listener) {
-        std::thread t(&Server::Listen, this);
-        current_thread = std::move(t);
-    }
+    if (run) return;
     run = true;
-}
 
-void Server::Close()
-{
-    if (!run) return;
-    run = false;
-    logger(LogLevel::DEBUG, "Shutting down server");
-    if (interrupt_event && current_thread.joinable()) {
+    if (current_thread.joinable()) {
         event_active(interrupt_event.get(), 0, 0);
         current_thread.join();
     }
 
-    {
-    std::lock_guard<std::mutex> guard(clients_mutex);
-    clients.clear();
+    std::thread t(&Server::Listen, this);
+    current_thread = std::move(t);
+}
+
+void Server::Close()
+{
+    logger(LogLevel::DEBUG, "Shutting down server");
+    if (current_thread.joinable()) {
+        event_active(interrupt_event.get(), 0, 0);
+        current_thread.join();
     }
 
-    unlink(unix_path.c_str());
+    if (unix_listener)
+        unlink(unix_path.c_str());
 }
 
 void Server::Broadcast(const Message& m)
 {
-    for (ClientHandle* cl : GetClients(MSG_ALL)) {
+    std::vector<ClientHandle*> all = GetClients(MSG_ALL);
+    for (ClientHandle* cl : all) {
         if (cl->Write(m).is_error()) cl->Disconnect_NoWrite();
     }
 }
@@ -256,7 +267,7 @@ void Server::Broadcast(const Message& m)
 // Server connection management
 // INTERNAL only functions
 
-void Server::AddClient(Client& cl)
+void Server::Internal_AddClient(Client& cl)
 {
     std::lock_guard<std::mutex> guard(clients_mutex);
     auto& ch = clients.emplace_back(
@@ -265,7 +276,7 @@ void Server::AddClient(Client& cl)
     if (ch->Handshake().is_error()) ch->Disconnect_NoWrite();
 }
 
-void Server::RemoveClient(Client& cl)
+void Server::Internal_RemoveClient(Client& cl)
 {
     { // Lock guard
     std::lock_guard<std::mutex> guard(clients_mutex);
@@ -282,16 +293,11 @@ void Server::RemoveClient(Client& cl)
     });
 }
 
-void Server::Receive(Client& cl, const Message& msg)
+void Server::Internal_ReceiveFrom(Client& cl, const Message& msg)
 {
-    ClientHandle* ch = nullptr;
-    {
-    std::lock_guard<std::mutex> guard(clients_mutex);
-    auto iter = GetClientByPointer(&cl);
-    if (iter == clients.end()) return;
-    ch = iter->get();
-    }
-    HandleMessage(ch, Message(msg));
+    std::lock_guard<std::mutex> guard(internal_mutex);
+    internal_messages.emplace_back(&cl, msg);
+    event_active(read_internal_event.get(), 0, 0);
 }
 
 // Reading from socket-based clients
@@ -330,6 +336,7 @@ void Server::HandleMessage(ClientHandle* ch, Message&& msg)
 
         ch->preferences.teamname = msg.content["teamname"];
         ch->preferences.format = msg.content["format"];
+        ch->preferences.max_msg_length = msg.content["max-message-length"];
         ch->handshaken = true;
         return;
     }
@@ -360,7 +367,8 @@ void Server::HandleMessage(ClientHandle* ch, Message&& msg)
         return;
     }
 
-    for (ClientHandle* destination : GetClients_NoLock(msg.dest)) {
+    std::vector<ClientHandle*> recipients = GetClients_NoLock(msg.dest);
+    for (ClientHandle* destination : recipients) {
         if (destination != ch) {
             if (destination->Write(msg).is_error()) destination->Disconnect_NoWrite();
         }
@@ -381,8 +389,12 @@ tb::error<AllocError> Server::SetupEvents()
                   &callback_data)
     );
 
-    if (!ebase || !interrupt_event) {
-        logger(LogLevel::WARNING, "Failed to create event base");
+    read_internal_event = make<UEvent>(
+        event_new(ebase.get(), -1, 0, callbacks::InternalReadCallback, &callback_data)
+    );
+
+    if (!ebase || !interrupt_event || !read_internal_event) {
+        logger(LogLevel::WARNING, "Failed to allocate one or more libevent structures");
         return AllocError {};
     }
 
@@ -391,8 +403,7 @@ tb::error<AllocError> Server::SetupEvents()
 
 void Server::Listen()
 {
-    while (event_base_dispatch(ebase.get()) == 0) {
-        if (!run) break;
+    while (event_base_loop(ebase.get(), EVLOOP_NO_EXIT_ON_EMPTY) == 0) {
         switch (callback_data.type) {
         case EventType::NEW_CONNECTION: {
             std::lock_guard<std::mutex> guard(clients_mutex);
@@ -418,6 +429,21 @@ void Server::Listen()
             ClientHandle* ch = iter->get();
 
             if (!ch->handshaken) ch->Disconnect("Failed handshake");
+            break;
+        }
+        case EventType::INTERNAL_READ_READY: {
+            event_del(read_internal_event.get());
+            std::vector<std::pair<Client*, Message>> messages;
+            {
+                std::lock_guard<std::mutex> guard(internal_mutex);
+                messages = std::move(internal_messages);
+            }
+            std::lock_guard<std::mutex> guard(clients_mutex);
+            for (auto& [client_ptr, message] : messages) {
+                Server::HandleIter iter = GetClientByPointer(client_ptr);
+                if (iter == clients.end()) continue;
+                HandleMessage((*iter).get(), std::move(message));
+            }
             break;
         }
         case EventType::INTERRUPT:

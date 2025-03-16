@@ -81,13 +81,14 @@ public:
 
     Stream& Then(Callback&& cb);
     void Finally(Callback&& cb);
-    void Delete(Field& f);
+    std::list<Field>::iterator Delete(Field& f);
 
     bool Read();
     bool Done();
     StreamStatus Status();
     void Reset();
     void Rewind(int offset);
+    void ClearFields();
 
     Field& operator[](int offset);
 

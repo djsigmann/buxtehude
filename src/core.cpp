@@ -138,6 +138,13 @@ void LoopInterruptCallback(evutil_socket_t fd, short what, void* data)
     event_base_loopbreak(ecdata->ebase);
 }
 
+void InternalReadCallback(evutil_socket_t fd, short what, void* data)
+{
+    EventCallbackData* ecdata = reinterpret_cast<EventCallbackData*>(data);
+    ecdata->type = EventType::INTERNAL_READ_READY;
+    event_base_loopbreak(ecdata->ebase);
+}
+
 }
 
 }

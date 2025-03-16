@@ -42,15 +42,20 @@ using nlohmann::json;
 
 class Client;
 
+enum class LogLevel { DEBUG = 0, INFO = 1, WARNING = 2, SEVERE = 3 };
+
 enum class ConnectionType { UNIX, INTERNET, INTERNAL };
 enum class MessageFormat : uint8_t { JSON = 0, MSGPACK = 1 };
-enum class EventType { NEW_CONNECTION, READ_READY, TIMEOUT, INTERRUPT };
-enum class LogLevel { DEBUG = 0, INFO = 1, WARNING = 2, SEVERE = 3 };
+
+enum class EventType
+{
+    NEW_CONNECTION, READ_READY, TIMEOUT, INTERRUPT, INTERNAL_READ_READY
+};
 
 enum class ConnectErrorType
 {
     GETADDRINFO_ERROR, CONNECT_ERROR, LIBEVENT_ERROR, SOCKET_ERROR,
-    WRITE_ERROR
+    WRITE_ERROR, ALREADY_CONNECTED
 };
 
 struct ConnectError
@@ -71,6 +76,8 @@ struct ConnectError
             return fmt::format("socket error: {}", strerror(code));
         case ConnectErrorType::WRITE_ERROR:
             return fmt::format("handshake write error");
+        case ConnectErrorType::ALREADY_CONNECTED:
+            return fmt::format("already connected");
         }
     }
 };
@@ -194,6 +201,8 @@ void ConnectionCallback(evconnlistener* listener, evutil_socket_t fd,
 void ReadCallback(evutil_socket_t fd, short what, void* data);
 
 void LoopInterruptCallback(evutil_socket_t fd, short what, void* data);
+
+void InternalReadCallback(evutil_socket_t fd, short what, void* data);
 
 }
 

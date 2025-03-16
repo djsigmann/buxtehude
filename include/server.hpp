@@ -39,8 +39,9 @@ public:
     tb::error<WriteError> Handshake();
     tb::error<WriteError> Write(const Message& m);
     void Error(std::string_view errstr);
-    void Disconnect(std::string_view reason="Disconnected by server");
-    void Disconnect_NoWrite();
+    void Disconnect(std::string_view reason="Disconnected by server",
+        bool internal_triggered = false);
+    void Disconnect_NoWrite(bool internal_triggered = false);
 
     bool Available(std::string_view type);
 
@@ -75,8 +76,8 @@ public:
 
     tb::error<ListenError> UnixServer(std::string_view path="buxtehude_unix");
     tb::error<ListenError> IPServer(uint16_t port=DEFAULT_PORT);
+    tb::error<AllocError> InternalServer();
 
-    void Run();
     void Close();
 
     void Broadcast(const Message& msg);
@@ -84,12 +85,13 @@ public:
     uint32_t max_msg_length = DEFAULT_MAX_MESSAGE_LENGTH;
 private: // For INTERNAL connections only.
     friend Client;
-    void AddClient(Client& cl);
-    void RemoveClient(Client& cl);
-    void Receive(Client& cl, const Message& msg);
+    void Internal_AddClient(Client& cl);
+    void Internal_RemoveClient(Client& cl);
+    void Internal_ReceiveFrom(Client& cl, const Message& msg);
 private:
     using HandleIter = std::vector<std::unique_ptr<ClientHandle>>::iterator;
 
+    void Run();
     void Serve(ClientHandle* ch);
     void HandleMessage(ClientHandle* ch, Message&& msg);
 
@@ -106,7 +108,8 @@ private:
     std::vector<ClientHandle*> GetClients_NoLock(std::string_view team=MSG_ALL);
 
     std::vector<std::unique_ptr<ClientHandle>> clients;
-    std::mutex clients_mutex;
+    std::vector<std::pair<Client*, Message>> internal_messages;
+    std::mutex clients_mutex, internal_mutex;
 
     std::thread current_thread;
     std::atomic<bool> run = false;
@@ -120,7 +123,7 @@ private:
     // Libevent internals
     UEventBase ebase;
     UEvconnListener ip_listener, unix_listener;
-    UEvent interrupt_event;
+    UEvent interrupt_event, read_internal_event;
 
     EventCallbackData callback_data;
 };

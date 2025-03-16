@@ -46,8 +46,6 @@ int main()
         fmt::print("Started INET server OK\n");
     });
 
-    server.Run();
-
     bux::Client client_ip({
         .teamname = "ip-client",
         .format = bux::MessageFormat::MSGPACK
@@ -128,12 +126,14 @@ int main()
         });
     });
 
-    client_internal.InternalConnect(server);
-    fmt::print("internal-client connected to server OK\n");
+    client_internal.InternalConnect(server).if_err([&fail_test] (bux::ConnectError e) {
+        fmt::print("internal-client failed to connect to server: {}\n", e.What());
+        fail_test();
+    }).if_ok([] {
+        fmt::print("internal-client connected to server OK\n");
+    });
 
-    client_ip.Run();
-    client_unix.Run();
-    client_internal.Run();
+    // Test ping pong
 
     using namespace std::chrono_literals;
 

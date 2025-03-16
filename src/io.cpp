@@ -31,11 +31,11 @@ Stream& Stream::Then(Callback&& cb)
 
 void Stream::Finally(Callback&& cb) { finally = std::move(cb); }
 
-void Stream::Delete(Field& f)
+std::list<Field>::iterator Stream::Delete(Field& f)
 {
     FieldIterator iter_to_erase = f.self_iterator;
     deleted.emplace_back(std::move(f));
-    fields.erase(iter_to_erase);
+    return fields.erase(iter_to_erase);
 }
 
 bool Stream::Read()
@@ -91,6 +91,16 @@ void Stream::Reset() { current = fields.end(); }
 void Stream::Rewind(int offset)
 {
     for (; offset > 0; --offset) --current;
+}
+
+void Stream::ClearFields()
+{
+    for (auto iter = fields.begin(); iter != fields.end();)
+        iter = Delete(*iter);
+
+    current = fields.end();
+    status = StreamStatus::OKAY;
+    data_offset = 0;
 }
 
 Field& Stream::operator[](int offset)
