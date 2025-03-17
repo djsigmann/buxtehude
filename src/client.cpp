@@ -208,6 +208,8 @@ void Client::EraseHandler(const std::string& type) { handlers.erase(type); }
 
 void Client::ClearHandlers() { handlers.clear(); }
 
+bool Client::Connected() const { return connected; }
+
 void Client::StartListening()
 {
     if (conn_type != ConnectionType::INTERNAL) {

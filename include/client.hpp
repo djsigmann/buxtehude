@@ -41,6 +41,8 @@ public:
     void EraseHandler(const std::string& type);
     void ClearHandlers();
 
+    bool Connected() const;
+
     ClientPreferences preferences;
 private: // Only for INTERNAL clients
     friend ClientHandle;
