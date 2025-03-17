@@ -140,7 +140,9 @@ tb::error<WriteError> Client::Write(const Message& msg)
 
 tb::error<WriteError> Client::Handshake()
 {
-    bool success = Write({
+    SetupDefaultHandlers();
+
+    return Write({
         .type { MSG_HANDSHAKE },
         .content = {
             { "format", preferences.format },
@@ -148,10 +150,11 @@ tb::error<WriteError> Client::Handshake()
             { "version", CURRENT_VERSION },
             { "max-message-length", preferences.max_msg_length }
         }
-    }).is_ok();
+    });
+}
 
-    if (!success) return WriteError {};
-
+void Client::SetupDefaultHandlers()
+{
     AddHandler(MSG_HANDSHAKE, [] (Client& c, const Message& m) {
         if (!ValidateJSON(m.content, VALIDATE_HANDSHAKE_CLIENTSIDE)) {
             logger(LogLevel::WARNING, "Rejected server handshake - disconnecting");
@@ -171,8 +174,6 @@ tb::error<WriteError> Client::Handshake()
         logger(LogLevel::INFO, fmt::format("Error message from server: {}",
                m.content.get<std::string>()));
     });
-
-    return tb::ok_t {};
 }
 
 tb::error<WriteError> Client::SetAvailable(std::string_view type, bool available)

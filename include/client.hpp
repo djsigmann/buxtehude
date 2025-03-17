@@ -56,6 +56,7 @@ private:
 
     void HandleMessage(const Message& msg);
     tb::error<WriteError> Handshake();
+    void SetupDefaultHandlers();
 
     ConnectionType conn_type;
 
