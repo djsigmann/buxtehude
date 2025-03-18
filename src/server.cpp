@@ -456,8 +456,23 @@ void Server::AddConnection(int fd, sa_family_t addr_family)
 {
     FILE* stream = fdopen(fd, "r+");
 
-    ConnectionType conn_type = addr_family == AF_LOCAL ? ConnectionType::UNIX
-                                                       : ConnectionType::INTERNET;
+    ConnectionType conn_type;
+    std::string_view debug_string;
+
+    switch (addr_family) {
+    case AF_LOCAL:
+        conn_type = ConnectionType::UNIX;
+        evconnlistener_enable(unix_listener.get());
+        debug_string = "UNIX";
+        break;
+    case AF_INET:
+    default:
+        conn_type = ConnectionType::INTERNET;
+        evconnlistener_enable(ip_listener.get());
+        debug_string = "internet";
+        break;
+    }
+
     auto& cl = clients.emplace_back(
         std::make_unique<ClientHandle>(conn_type, stream, max_msg_length)
     );
@@ -469,8 +484,8 @@ void Server::AddConnection(int fd, sa_family_t addr_family)
 
     event_add(cl->read_event.get(), &callbacks::DEFAULT_TIMEOUT);
 
-    logger(LogLevel::DEBUG, fmt::format("New client connected on {} domain, fd = {}",
-           conn_type == ConnectionType::UNIX ? "UNIX" : "internet", fd));
+    logger(LogLevel::DEBUG,
+        fmt::format("New client connected on {} domain, fd = {}", debug_string, fd));
 }
 
 // ClientHandle iteration

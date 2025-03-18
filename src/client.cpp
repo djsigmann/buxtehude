@@ -12,6 +12,11 @@ namespace buxtehude
 Client::~Client()
 {
     Disconnect();
+
+    if (current_thread.joinable()
+        && std::this_thread::get_id() != current_thread.get_id()) {
+        current_thread.join();
+    }
 }
 
 Client::Client(const ClientPreferences& preferences) : preferences(preferences) {}
@@ -204,6 +209,11 @@ void Client::AddHandler(std::string_view type, Handler&& h)
     handlers.emplace(type, std::forward<Handler>(h));
 }
 
+void Client::SetDisconnectHandler(DisconnectHandler&& h)
+{
+    disconnect_handler = std::move(h);
+}
+
 void Client::EraseHandler(const std::string& type) { handlers.erase(type); }
 
 void Client::ClearHandlers() { handlers.clear(); }
@@ -213,8 +223,8 @@ bool Client::Connected() const { return connected; }
 void Client::StartListening()
 {
     if (conn_type != ConnectionType::INTERNAL) {
-        std::thread t(&Client::Listen, this);
-        current_thread = std::move(t);
+        if (current_thread.joinable()) current_thread.join();
+        current_thread = std::thread(&Client::Listen, this);
     }
 }
 
@@ -232,10 +242,7 @@ void Client::Disconnect()
         server_ptr.load()->Internal_RemoveClient(*this);
     }
 
-    if (current_thread.joinable()
-        && std::this_thread::get_id() != current_thread.get_id()) {
-        current_thread.join();
-    }
+    if (disconnect_handler) disconnect_handler(*this);
 }
 
 void Client::Internal_Disconnect()
@@ -244,6 +251,7 @@ void Client::Internal_Disconnect()
     connected = false;
     server_ptr = nullptr;
     logger(LogLevel::DEBUG, "Disconnecting client");
+    if (disconnect_handler) disconnect_handler(*this);
 }
 
 // INTERNAL clients only

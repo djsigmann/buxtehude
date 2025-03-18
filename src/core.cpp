@@ -118,6 +118,12 @@ void ConnectionCallback(evconnlistener* listener, evutil_socket_t fd,
     ecdata->type = EventType::NEW_CONNECTION;
 
     event_base_loopbreak(ecdata->ebase);
+
+    // If there is a queue of connections, these callbacks will run in succession
+    // even with a call to event_base_loopbreak(). Disabling the listener will
+    // break out of the listener accept(2) loop. The listener is re-enabled after
+    // accepting the connection in Server::AddConnection().
+    evconnlistener_disable(listener);
 }
 
 void ReadCallback(evutil_socket_t fd, short what, void* data)
