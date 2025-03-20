@@ -61,7 +61,7 @@ enum class ConnectErrorType
 struct ConnectError
 {
     ConnectErrorType type;
-    int code;
+    int code = -1;
 
     std::string What() const
     {
@@ -75,9 +75,9 @@ struct ConnectError
         case ConnectErrorType::SOCKET_ERROR:
             return fmt::format("socket error: {}", strerror(code));
         case ConnectErrorType::WRITE_ERROR:
-            return fmt::format("handshake write error");
+            return "handshake write error";
         case ConnectErrorType::ALREADY_CONNECTED:
-            return fmt::format("already connected");
+            return "already connected";
         }
     }
 };
@@ -90,7 +90,7 @@ enum class ListenErrorType
 struct ListenError
 {
     ListenErrorType type;
-    int code;
+    int code = -1;
 
     std::string What() const
     {

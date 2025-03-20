@@ -151,7 +151,7 @@ Server::~Server()
 tb::error<ListenError> Server::UnixServer(std::string_view path)
 {
     if (SetupEvents().is_error())
-        return ListenError { ListenErrorType::LIBEVENT_ERROR, -1 };
+        return ListenError { ListenErrorType::LIBEVENT_ERROR };
 
     sockaddr_un addr;
     addr.sun_family = PF_LOCAL;
@@ -188,7 +188,7 @@ tb::error<ListenError> Server::UnixServer(std::string_view path)
 tb::error<ListenError> Server::IPServer(uint16_t port)
 {
     if (SetupEvents().is_error())
-        return ListenError { ListenErrorType::LIBEVENT_ERROR, -1 };
+        return ListenError { ListenErrorType::LIBEVENT_ERROR };
 
     sockaddr_in addr = {0};
     addr.sin_family = PF_INET;
