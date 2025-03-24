@@ -110,7 +110,7 @@ namespace callbacks
 void ConnectionCallback(evconnlistener* listener, evutil_socket_t fd,
     sockaddr* addr, int addr_len, void* data)
 {
-    EventCallbackData* ecdata = reinterpret_cast<EventCallbackData*>(data);
+    auto* ecdata = reinterpret_cast<EventCallbackData*>(data);
 
     ecdata->fd = fd;
     ecdata->address = *addr;
@@ -128,7 +128,7 @@ void ConnectionCallback(evconnlistener* listener, evutil_socket_t fd,
 
 void ReadCallback(evutil_socket_t fd, short what, void* data)
 {
-    EventCallbackData* ecdata = reinterpret_cast<EventCallbackData*>(data);
+    auto* ecdata = reinterpret_cast<EventCallbackData*>(data);
 
     ecdata->fd = fd;
     if (what & EV_READ) ecdata->type = EventType::READ_READY;
@@ -139,14 +139,14 @@ void ReadCallback(evutil_socket_t fd, short what, void* data)
 
 void LoopInterruptCallback(evutil_socket_t fd, short what, void* data)
 {
-    EventCallbackData* ecdata = reinterpret_cast<EventCallbackData*>(data);
+    auto* ecdata = reinterpret_cast<EventCallbackData*>(data);
     ecdata->type = EventType::INTERRUPT;
     event_base_loopbreak(ecdata->ebase);
 }
 
 void InternalReadCallback(evutil_socket_t fd, short what, void* data)
 {
-    EventCallbackData* ecdata = reinterpret_cast<EventCallbackData*>(data);
+    auto* ecdata = reinterpret_cast<EventCallbackData*>(data);
     ecdata->type = EventType::INTERNAL_READ_READY;
     event_base_loopbreak(ecdata->ebase);
 }

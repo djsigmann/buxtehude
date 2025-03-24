@@ -22,7 +22,7 @@ ClientHandle::ClientHandle(ConnectionType conn_type, FILE* ptr, uint32_t max_msg
     : conn_type(conn_type)
 {
     stream.file = ptr;
-    stream.Await<uint8_t>().Await<uint32_t>()
+    stream.Await<MessageFormat>().Await<uint32_t>()
           .Then([this, max_msg_len] (Stream& s, Field& f) {
         auto type = f[-1].Get<MessageFormat>();
         if (type != MessageFormat::JSON && type != MessageFormat::MSGPACK) {
@@ -280,8 +280,8 @@ void Server::Internal_RemoveClient(Client& cl)
 {
     { // Lock guard
     std::lock_guard<std::mutex> guard(clients_mutex);
-    std::erase_if(clients, [&cl] (auto& u_ptr) {
-        return u_ptr->client_ptr == &cl;
+    std::erase_if(clients, [&cl] (auto& unique_ptr) {
+        return unique_ptr->client_ptr == &cl;
     });
     } // Exit lock guard
 

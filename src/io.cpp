@@ -65,7 +65,7 @@ bool Stream::Read()
         if (data_offset < current->length) return false;
 
         data_offset = 0;
-        auto old_current = current;
+        FieldIterator old_current = current;
         if (current->cb) current->cb(*this, *current);
 
         if (current == fields.end()) continue; // The stream has been reset
