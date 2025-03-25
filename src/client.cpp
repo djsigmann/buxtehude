@@ -270,7 +270,7 @@ tb::error<AllocError> Client::SetupEvents()
 
     read_event = make<UEvent>(
         event_new(ebase.get(), client_socket, EV_PERSIST | EV_READ,
-                  callbacks::ReadCallback, reinterpret_cast<void*>(&callback_data))
+                  callbacks::ReadCallback, static_cast<void*>(&callback_data))
     );
 
     interrupt_event = make<UEvent>(

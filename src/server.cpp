@@ -522,7 +522,7 @@ Server::HandleIter Server::GetClientByPointer(Client* ptr)
     if (iter == clients.end())
         logger(LogLevel::WARNING,
             fmt::format("No client with pointer {} found",
-                        reinterpret_cast<void*>(ptr)));
+                        static_cast<void*>(ptr)));
 
     return iter;
 }
