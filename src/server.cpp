@@ -83,13 +83,13 @@ void ClientHandle::Error(std::string_view errstr)
 void ClientHandle::Disconnect(std::string_view reason, bool internal_triggered)
 {
     if (!connected) return;
-    [[maybe_unused]] auto _ = Write({
+    Write({
         .type { MSG_DISCONNECT },
         .content = {
             { "reason", reason },
             { "who", MSG_YOU }
         }
-    });
+    }).ignore_error();
     Disconnect_NoWrite(internal_triggered);
 }
 

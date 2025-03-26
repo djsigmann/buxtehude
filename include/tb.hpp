@@ -161,6 +161,8 @@ public:
         if constexpr (std::is_empty_v<E>) return E {};
         else return members.err;
     }
+
+    void ignore_error() const {}
 };
 
 template<typename E>
