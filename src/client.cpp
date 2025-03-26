@@ -66,7 +66,7 @@ tb::error<ConnectError> Client::IPConnect(std::string_view hostname, uint16_t po
     connected = true;
     StartListening();
 
-    return tb::ok_t {};
+    return tb::ok;
 }
 
 tb::error<ConnectError> Client::UnixConnect(std::string_view path)
@@ -102,7 +102,7 @@ tb::error<ConnectError> Client::UnixConnect(std::string_view path)
     connected = true;
     StartListening();
 
-    return tb::ok_t {};
+    return tb::ok;
 }
 
 tb::error<ConnectError> Client::InternalConnect(Server& server)
@@ -124,7 +124,7 @@ tb::error<ConnectError> Client::InternalConnect(Server& server)
     connected = true;
     StartListening();
 
-    return tb::ok_t {};
+    return tb::ok;
 }
 
 // General functions applicable to all types of Client
@@ -140,7 +140,7 @@ tb::error<WriteError> Client::Write(const Message& msg)
         return WriteError {};
     }
 
-    return tb::ok_t {};
+    return tb::ok;
 }
 
 tb::error<WriteError> Client::Handshake()
@@ -304,7 +304,7 @@ tb::error<AllocError> Client::SetupEvents()
         stream.Await(size);
     });
 
-    return tb::ok_t {};
+    return tb::ok;
 }
 
 void Client::Read()

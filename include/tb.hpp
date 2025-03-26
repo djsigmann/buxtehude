@@ -11,45 +11,8 @@ namespace buxtehude
 namespace tb
 {
 
-template<typename T, size_t N>
-constexpr auto make_span(T (&&array)[N]) { return std::span<T>(array, N); }
-
-template<typename T>
-struct range_to_dummy {};
-
-template<typename T>
-struct ptr_vec_dummy {};
-
-template<typename T>
-constexpr auto range_to() { return range_to_dummy<T> {}; }
-
-template<typename T>
-constexpr auto ptr_vec() { return ptr_vec_dummy<T> {}; }
-
-template<std::ranges::view View, typename T>
-constexpr auto operator|(View&& view, range_to_dummy<T>&&)
+namespace detail
 {
-    return T { view.begin(), view.end() };
-}
-
-template<typename Range, typename T>
-constexpr auto operator|(Range&& range, ptr_vec_dummy<T>&&)
-{
-    return range | std::views::transform([] (auto&& obj) -> T* {
-        if constexpr (std::is_same_v<std::unique_ptr<T>,
-                      typename std::ranges::range_value_t<Range>>) {
-            return obj.get();
-        } else return &obj;
-    }) | range_to<std::vector<T*>>();
-}
-
-template<typename Lambda> requires std::invocable<Lambda>
-struct scoped_guard
-{
-    Lambda lambda;
-    scoped_guard(Lambda&& lambda) : lambda(std::move(lambda)) {}
-    ~scoped_guard() { lambda(); }
-};
 
 struct ok_t {};
 
@@ -97,17 +60,61 @@ struct result_internal<void, E>
     result_internal(const E&) : is_err(true) {}
 };
 
+} // namespace detail
+
+template<typename T>
+struct range_to_t {};
+
+template<typename T>
+struct ptr_vec_t {};
+
+template<typename T, size_t N>
+constexpr auto make_span(T (&&array)[N]) { return std::span<T>(array, N); }
+
+template<typename T>
+constexpr auto range_to() { return range_to_t<T> {}; }
+
+template<typename T>
+constexpr auto ptr_vec() { return ptr_vec_t<T> {}; }
+
+template<std::ranges::view View, typename T>
+constexpr auto operator|(View&& view, range_to_t<T>&&)
+{
+    return T { view.begin(), view.end() };
+}
+
+template<typename Range, typename T>
+constexpr auto operator|(Range&& range, ptr_vec_t<T>&&)
+{
+    return range | std::views::transform([] (auto&& obj) -> T* {
+        if constexpr (std::is_same_v<std::unique_ptr<T>,
+                      typename std::ranges::range_value_t<Range>>) {
+            return obj.get();
+        } else return &obj;
+    }) | range_to<std::vector<T*>>();
+}
+
+template<typename Lambda> requires std::invocable<Lambda>
+struct scoped_guard
+{
+    Lambda lambda;
+    scoped_guard(Lambda&& lambda) : lambda(std::move(lambda)) {}
+    ~scoped_guard() { lambda(); }
+};
+
+constexpr detail::ok_t ok;
+
 template<typename R, typename E>
 struct [[nodiscard]] result
 {
 private:
-    result_internal<R, E> members;
+    detail::result_internal<R, E> members;
 public:
     result() = delete;
 
     // Success/value initialisation
     template<typename T = R> requires (std::is_void_v<T> && std::is_same_v<T, R>)
-    result(ok_t) : members { ok_t {} } {}
+    result(detail::ok_t) : members { ok } {}
 
     template<typename T = R> requires (!std::is_void_v<T> && std::is_same_v<T, R>)
     result(const T& value) : members { value } {}

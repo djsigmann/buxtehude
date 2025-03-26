@@ -68,7 +68,7 @@ tb::error<WriteError> ClientHandle::Write(const Message& msg)
         return WriteError {};
     }
 
-    return tb::ok_t {};
+    return tb::ok;
 }
 
 void ClientHandle::Error(std::string_view errstr)
@@ -182,7 +182,7 @@ tb::error<ListenError> Server::UnixServer(std::string_view path)
     Run();
     logger(LogLevel::DEBUG, fmt::format("Listening on file {}", path));
 
-    return tb::ok_t {};
+    return tb::ok;
 }
 
 tb::error<ListenError> Server::IPServer(uint16_t port)
@@ -217,7 +217,7 @@ tb::error<ListenError> Server::IPServer(uint16_t port)
     Run();
     logger(LogLevel::DEBUG, fmt::format("Listening on port {}", port));
 
-    return tb::ok_t {};
+    return tb::ok;
 }
 
 tb::error<AllocError> Server::InternalServer()
@@ -225,7 +225,7 @@ tb::error<AllocError> Server::InternalServer()
     if (SetupEvents().is_error()) return AllocError {};
 
     Run();
-    return tb::ok_t {};
+    return tb::ok;
 }
 
 // Server initialisation & threaded logic
@@ -379,7 +379,7 @@ void Server::HandleMessage(ClientHandle* ch, Message&& msg)
 
 tb::error<AllocError> Server::SetupEvents()
 {
-    if (ebase) return tb::ok_t {};
+    if (ebase) return tb::ok;
 
     ebase = make<UEventBase>(event_base_new());
     callback_data.ebase = ebase.get();
@@ -398,7 +398,7 @@ tb::error<AllocError> Server::SetupEvents()
         return AllocError {};
     }
 
-    return tb::ok_t {};
+    return tb::ok;
 }
 
 void Server::Listen()
