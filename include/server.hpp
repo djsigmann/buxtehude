@@ -39,9 +39,8 @@ public:
     tb::error<WriteError> Handshake();
     tb::error<WriteError> Write(const Message& m);
     void Error(std::string_view errstr);
-    void Disconnect(std::string_view reason="Disconnected by server",
-        bool internal_triggered = false);
-    void Disconnect_NoWrite(bool internal_triggered = false);
+    void Disconnect(std::string_view reason="Disconnected by server");
+    void Disconnect_NoWrite();
 
     bool Available(std::string_view type);
 

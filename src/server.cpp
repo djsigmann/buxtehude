@@ -80,7 +80,7 @@ void ClientHandle::Error(std::string_view errstr)
     if (!handshaken || !success) Disconnect("Failed handshake");
 }
 
-void ClientHandle::Disconnect(std::string_view reason, bool internal_triggered)
+void ClientHandle::Disconnect(std::string_view reason)
 {
     if (!connected) return;
     Write({
@@ -90,10 +90,10 @@ void ClientHandle::Disconnect(std::string_view reason, bool internal_triggered)
             { "who", MSG_YOU }
         }
     }).ignore_error();
-    Disconnect_NoWrite(internal_triggered);
+    Disconnect_NoWrite();
 }
 
-void ClientHandle::Disconnect_NoWrite(bool internal_triggered)
+void ClientHandle::Disconnect_NoWrite()
 {
     if (!connected) return;
     if (conn_type == ConnectionType::UNIX || conn_type == ConnectionType::INTERNET) {
