@@ -105,7 +105,7 @@ struct ListenError
 
 struct WriteError {};
 struct AllocError {};
-enum class ReadError { PARSE_ERROR, CONNECTION_ERROR };
+enum class ReadError { PARSE_ERROR, CONNECTION_ERROR, INCOMPLETE_MESSAGE };
 
 template<auto Deleter>
 struct LibeventDeleter

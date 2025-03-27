@@ -116,15 +116,19 @@ bool ClientHandle::Available(std::string_view type)
 tb::result<Message, ReadError> ClientHandle::Read()
 {
     if (!stream.Read()) {
-        if (stream.Status() == StreamStatus::REACHED_EOF) Disconnect();
-        return { ReadError::CONNECTION_ERROR };
+        if (stream.Status() == StreamStatus::REACHED_EOF) {
+            Disconnect();
+            return { ReadError::CONNECTION_ERROR };
+        } else {
+            return { ReadError::INCOMPLETE_MESSAGE };
+        }
     }
 
     std::string_view data = stream[2].GetView();
-
-    // Neither of these change the data on their own, data is still safe to use
-    stream.Delete(stream[2]);
-    stream.Reset();
+    tb::scoped_guard reset_stream = [this] {
+        stream.Delete(stream[2]);
+        stream.Reset();
+    };
 
     try {
         return { Message::Deserialise(stream[0].Get<MessageFormat>(), data) };
