@@ -44,8 +44,6 @@ ClientHandle::ClientHandle(ConnectionType conn_type, FILE* ptr, uint32_t max_msg
     if (Handshake().is_error()) Disconnect_NoWrite();
 }
 
-ClientHandle::~ClientHandle() { Disconnect(); }
-
 // Common ClientHandle functions
 
 tb::error<WriteError> ClientHandle::Handshake()
@@ -236,16 +234,15 @@ tb::error<AllocError> Server::InternalServer()
 
 void Server::Run()
 {
-    if (run) return;
-    run = true;
+    if (started) return;
+    started = true;
 
     if (current_thread.joinable()) {
         event_active(interrupt_event.get(), 0, 0);
         current_thread.join();
     }
 
-    std::thread t(&Server::Listen, this);
-    current_thread = std::move(t);
+    current_thread = std::thread(&Server::Listen, this);
 }
 
 void Server::Close()
@@ -256,15 +253,20 @@ void Server::Close()
         current_thread.join();
     }
 
+    for (ClientHandle& handle : clients) {
+        handle.Disconnect("Shutting down server");
+    }
+
     if (unix_listener)
         unlink(unix_path.c_str());
+
+    started = false;
 }
 
-void Server::Broadcast(const Message& m)
+void Server::Broadcast_NoLock(const Message& m)
 {
-    std::vector<ClientHandle*> all = GetClients(MSG_ALL);
-    for (ClientHandle* cl : all) {
-        if (cl->Write(m).is_error()) cl->Disconnect_NoWrite();
+    for (ClientHandle& handle : clients) {
+        if (handle.Write(m).is_error()) handle.Disconnect_NoWrite();
     }
 }
 
@@ -274,25 +276,22 @@ void Server::Broadcast(const Message& m)
 void Server::Internal_AddClient(Client& cl)
 {
     std::lock_guard<std::mutex> guard(clients_mutex);
-    auto& ch = clients.emplace_back(
-        std::make_unique<ClientHandle>(cl, cl.preferences.teamname)
-    );
-    if (ch->Handshake().is_error()) ch->Disconnect_NoWrite();
+    auto& handle = clients.emplace_back(cl, cl.preferences.teamname);
+
+    if (handle.Handshake().is_error()) handle.Disconnect_NoWrite();
 }
 
-void Server::Internal_RemoveClient(Client& cl)
+void Server::Internal_RemoveClient(Client& to_remove)
 {
-    { // Lock guard
     std::lock_guard<std::mutex> guard(clients_mutex);
-    std::erase_if(clients, [&cl] (auto& unique_ptr) {
-        return unique_ptr->client_ptr == &cl;
+    std::erase_if(clients, [&to_remove] (ClientHandle& handle) {
+        return handle.client_ptr == &to_remove;
     });
-    } // Exit lock guard
 
-    Broadcast({
+    Broadcast_NoLock({
         .type { MSG_DISCONNECT },
         .content = {
-            { "who", cl.preferences.teamname }
+            { "who", to_remove.preferences.teamname }
         }
     });
 }
@@ -306,76 +305,76 @@ void Server::Internal_ReceiveFrom(Client& cl, const Message& msg)
 
 // Reading from socket-based clients
 
-void Server::Serve(ClientHandle* ch)
+void Server::Serve(HandleIter client_handle)
 {
-    tb::result<Message, ReadError> message = ch->Read();
-    if (message.is_ok()) HandleMessage(ch, std::move(message.get_mut_unchecked()));
+    client_handle->Read().if_ok_mut([this, client_handle] (Message& message) {
+        HandleMessage(*client_handle, std::move(message));
+    });
 
-    if (!ch->connected) {
-        std::string teamname = std::move(ch->preferences.teamname);
-        {
-        std::lock_guard<std::mutex> guard(clients_mutex);
-        std::erase_if(clients, [ch] (auto& unique_ptr) {
-            return unique_ptr.get() == ch;
-        });
-        }
-        Broadcast({
+    if (!client_handle->connected) {
+        Broadcast_NoLock({
             .type { MSG_DISCONNECT },
             .content = {
-                { "who", ch->preferences.teamname }
+                { "who", client_handle->preferences.teamname }
             }
         });
+
+        clients.erase(client_handle);
     }
 }
 
-void Server::HandleMessage(ClientHandle* ch, Message&& msg)
+void Server::HandleMessage(ClientHandle& client_handle, Message&& msg)
 {
     // Types of the JSON values are validated in checks
-    if (!ch->handshaken) {
+    if (!client_handle.handshaken) {
         if (msg.type != MSG_HANDSHAKE ||
             !ValidateJSON(msg.content, VALIDATE_HANDSHAKE_SERVERSIDE)) {
-            ch->Disconnect("Failed handshake");
+            client_handle.Disconnect("Failed handshake");
             return;
         }
 
-        ch->preferences.teamname = msg.content["teamname"];
-        ch->preferences.format = msg.content["format"];
-        ch->preferences.max_msg_length = msg.content["max-message-length"];
-        ch->handshaken = true;
+        client_handle.preferences.teamname = msg.content["teamname"];
+        client_handle.preferences.format = msg.content["format"];
+        client_handle.preferences.max_msg_length = msg.content["max-message-length"];
+        client_handle.handshaken = true;
         return;
     }
 
     if (msg.type == MSG_AVAILABLE) {
         if (!ValidateJSON(msg.content, VALIDATE_AVAILABLE)) {
-            ch->Error("Incorrect format for $$available message");
+            client_handle.Error("Incorrect format for $$available message");
             return;
         }
         std::string type = msg.content["type"];
         bool available = msg.content["available"];
-        auto it = std::ranges::find(ch->unavailable, type);
+        auto iter = std::ranges::find(client_handle.unavailable, type);
         if (available) {
-            if (it != ch->unavailable.end()) ch->unavailable.erase(it);
+            if (iter != client_handle.unavailable.end())
+                client_handle.unavailable.erase(iter);
         } else {
-            if (it == ch->unavailable.end()) ch->unavailable.emplace_back(type);
+            if (iter == client_handle.unavailable.end())
+                client_handle.unavailable.emplace_back(type);
         }
     }
 
     if (msg.dest.empty()) return;
 
-    msg.src = ch->preferences.teamname;
+    msg.src = client_handle.preferences.teamname;
     if (msg.only_first) {
-        ClientHandle* destination = GetFirstAvailable(msg.dest, msg.type, ch);
-        if (destination) {
+        HandleIter destination = GetFirstAvailable(msg.dest, msg.type, client_handle);
+        if (destination != clients.end()) {
             if (destination->Write(msg).is_error()) destination->Disconnect_NoWrite();
         }
         return;
     }
 
-    std::vector<ClientHandle*> recipients = GetClients_NoLock(msg.dest);
-    for (ClientHandle* destination : recipients) {
-        if (destination != ch) {
-            if (destination->Write(msg).is_error()) destination->Disconnect_NoWrite();
-        }
+    auto recipients = clients | std::views::filter([&msg] (ClientHandle& handle) {
+        return handle.preferences.teamname == msg.dest || msg.dest == MSG_ALL;
+    });
+
+    for (ClientHandle& destination : recipients) {
+        if (&destination == &client_handle) continue;
+        if (destination.Write(msg).is_error()) destination.Disconnect_NoWrite();
     }
 }
 
@@ -415,24 +414,18 @@ void Server::Listen()
             break;
         }
         case EventType::READ_READY: {
-            ClientHandle* ch = nullptr;
-            {
             std::lock_guard<std::mutex> guard(clients_mutex);
             Server::HandleIter iter = GetClientBySocket(callback_data.fd);
             if (iter == clients.end()) break;
-            ch = iter->get();
-            }
-
-            Serve(ch);
+            Serve(iter);
 
             break;
         }
         case EventType::TIMEOUT: {
             Server::HandleIter iter = GetClientBySocket(callback_data.fd);
             if (iter == clients.end()) break;
-            ClientHandle* ch = iter->get();
 
-            if (!ch->handshaken) ch->Disconnect("Failed handshake");
+            if (!iter->handshaken) iter->Disconnect("Failed handshake");
             break;
         }
         case EventType::INTERNAL_READ_READY: {
@@ -446,7 +439,7 @@ void Server::Listen()
             for (auto& [client_ptr, message] : messages) {
                 Server::HandleIter iter = GetClientByPointer(client_ptr);
                 if (iter == clients.end()) continue;
-                HandleMessage((*iter).get(), std::move(message));
+                HandleMessage(*iter, std::move(message));
             }
             break;
         }
@@ -477,16 +470,14 @@ void Server::AddConnection(int fd, sa_family_t addr_family)
         break;
     }
 
-    auto& cl = clients.emplace_back(
-        std::make_unique<ClientHandle>(conn_type, stream, max_msg_length)
-    );
+    auto& handle_ref = clients.emplace_back(conn_type, stream, max_msg_length);
 
-    cl->read_event = make<UEvent>(
+    handle_ref.read_event = make<UEvent>(
         event_new(ebase.get(), fd, EV_PERSIST | EV_READ,
                   callbacks::ReadCallback, &callback_data)
     );
 
-    event_add(cl->read_event.get(), &callbacks::DEFAULT_TIMEOUT);
+    event_add(handle_ref.read_event.get(), &callbacks::DEFAULT_TIMEOUT);
 
     logger(LogLevel::DEBUG,
         fmt::format("New client connected on {} domain, fd = {}", debug_string, fd));
@@ -494,17 +485,11 @@ void Server::AddConnection(int fd, sa_family_t addr_family)
 
 // ClientHandle iteration
 
-std::vector<ClientHandle*> Server::GetClients(std::string_view team)
-{
-    std::lock_guard<std::mutex> guard(clients_mutex);
-    return GetClients_NoLock(team);
-}
-
-Server::HandleIter Server::GetClientBySocket(int fd)
+auto Server::GetClientBySocket(int fd) -> HandleIter
 {
     auto iter = std::ranges::find_if(clients,
-        [fd] (auto& unique_pointer) {
-            return unique_pointer->socket == fd;
+        [fd] (ClientHandle& handle) {
+            return handle.socket == fd;
         }
     );
 
@@ -515,11 +500,11 @@ Server::HandleIter Server::GetClientBySocket(int fd)
     return iter;
 }
 
-Server::HandleIter Server::GetClientByPointer(Client* ptr)
+auto Server::GetClientByPointer(Client* ptr) -> HandleIter
 {
     auto iter = std::ranges::find_if(clients,
-        [ptr] (auto& unique_pointer) {
-            return unique_pointer->client_ptr == ptr;
+        [ptr] (ClientHandle& handle) {
+            return handle.client_ptr == ptr;
         }
     );
 
@@ -531,30 +516,19 @@ Server::HandleIter Server::GetClientByPointer(Client* ptr)
     return iter;
 }
 
-ClientHandle* Server::GetFirstAvailable(std::string_view team,
-                                        std::string_view type,
-                                        const ClientHandle* exclude)
+auto Server::GetFirstAvailable(std::string_view team, std::string_view type,
+                               const ClientHandle& exclude) -> HandleIter
 {
-    ClientHandle* result = nullptr;
+    HandleIter result = clients.end();
 
     for (auto it = clients.begin(); it != clients.end(); ++it) {
-        ClientHandle* ch = it->get();
-        if ((ch->preferences.teamname == team || team == MSG_ALL) && ch != exclude)
-            result = ch;
+        if ((it->preferences.teamname == team || team == MSG_ALL) && &(*it) != &exclude)
+            result = it;
         else continue;
-        if (ch->Available(type)) return result;
+        if (result->Available(type)) return result;
     }
 
     return result;
-}
-
-std::vector<ClientHandle*> Server::GetClients_NoLock(std::string_view team)
-{
-    if (team == MSG_ALL) return clients | tb::ptr_vec<ClientHandle>();
-
-    return clients | std::views::filter([team] (const auto& client) {
-        return client->preferences.teamname == team;
-    }) | tb::ptr_vec<ClientHandle>();
 }
 
 }

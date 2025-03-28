@@ -31,7 +31,7 @@ Stream& Stream::Then(Callback&& cb)
 
 void Stream::Finally(Callback&& cb) { finally = std::move(cb); }
 
-std::list<Field>::iterator Stream::Delete(Field& f)
+FieldIterator Stream::Delete(Field& f)
 {
     FieldIterator iter_to_erase = f.self_iterator;
     deleted.emplace_back(std::move(f));
@@ -47,7 +47,8 @@ bool Stream::Read()
             return true;
         }
 
-        if (current == fields.end()) current = fields.begin();
+        if (!is_at_valid_field || current == fields.end()) current = fields.begin();
+        is_at_valid_field = true;
         size_t expected = current->length - data_offset;
 
         // Evil writing to vector through the data pointer, but we
@@ -75,6 +76,7 @@ bool Stream::Read()
         if (current == fields.end()) { // Reached the end
             if (finally) finally(*this, *fields.rbegin());
             done = true;
+            is_at_valid_field = false;
             return true;
         }
     }

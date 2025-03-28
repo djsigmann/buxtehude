@@ -28,6 +28,9 @@ struct Field
 
     Field(size_t length) : length(length) { data.reserve(length); }
 
+    Field(Field&&) noexcept = default;
+    Field& operator=(Field&&) noexcept = default;
+
     template<typename T>
     T Get() { return *reinterpret_cast<T*>(data.data()); }
 
@@ -50,6 +53,11 @@ class Stream
 public:
     Stream() = default;
     Stream(FILE* file);
+
+    Stream(Stream&&) noexcept = default;
+    Stream& operator=(Stream&&) noexcept = default;
+
+    Stream(const Stream&) = delete;
 
     template<typename T=void>
     Stream& Await(size_t len=sizeof(T))
@@ -81,7 +89,7 @@ public:
 
     Stream& Then(Callback&& cb);
     void Finally(Callback&& cb);
-    std::list<Field>::iterator Delete(Field& f);
+    FieldIterator Delete(Field& f);
 
     bool Read();
     bool Done();
@@ -101,6 +109,7 @@ private:
     size_t data_offset = 0;
     StreamStatus status = StreamStatus::OKAY;
     bool done = false;
+    bool is_at_valid_field = false;
 };
 
 }
