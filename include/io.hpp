@@ -1,9 +1,12 @@
 #pragma once
 
+#include <cstdint>
 #include <cstdio>
 #include <functional>
-#include <tuple>
 #include <list>
+#include <tuple>
+#include <string_view>
+#include <ranges>
 
 namespace buxtehude
 {
@@ -69,7 +72,7 @@ public:
         if (deleted.empty()) {
             new_field.data.reserve(len);
         } else {
-            auto reusable = std::find_if(deleted.begin(), deleted.end(),
+            auto reusable = std::ranges::find_if(deleted,
                 [len] (const Field& f) {
                     return f.data.capacity() >= len;
                 }
