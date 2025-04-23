@@ -47,7 +47,7 @@ struct Inverse
     Predicate pred;
 };
 
-enum EqualityType
+enum class EqualityType
 {
     EQUAL, LESS, GREATER, LESS_EQ, GREATER_EQ
 };
@@ -56,17 +56,17 @@ template<EqualityType eq, auto cmp>
 inline const Predicate IntegralCompare = [] (const json& j) -> bool
 {
     switch (eq) {
-    case EQUAL: return j == cmp;
-    case LESS: return j < cmp;
-    case GREATER: return j > cmp;
-    case LESS_EQ: return j <= cmp;
-    case GREATER_EQ: return j >= cmp;
+    case EqualityType::EQUAL: return j == cmp;
+    case EqualityType::LESS: return j < cmp;
+    case EqualityType::GREATER: return j > cmp;
+    case EqualityType::LESS_EQ: return j <= cmp;
+    case EqualityType::GREATER_EQ: return j >= cmp;
     default: return false;
     }
 };
 
 template<auto cmp>
-inline const Predicate GreaterEq = IntegralCompare<GREATER_EQ, cmp>;
+inline const Predicate GreaterEq = IntegralCompare<EqualityType::GREATER_EQ, cmp>;
 
 inline const Predicate Exists = nullptr;
 inline const Predicate NotEmpty = [] (const json& j) { return j.is_string() && j != ""; };
