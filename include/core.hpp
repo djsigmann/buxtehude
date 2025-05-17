@@ -174,7 +174,7 @@ inline const ValidationSeries VALIDATE_HANDSHAKE_SERVERSIDE = {
         MessageFormat::JSON, MessageFormat::MSGPACK
       })
     },
-    { "/max-message-length"_json_pointer, [] (const json& j) { return j.is_number(); } },
+    { "/max-message-length"_json_pointer, predicates::IsNumber },
     VERSION_CHECK
 };
 

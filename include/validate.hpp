@@ -71,6 +71,8 @@ constexpr auto GreaterEq = IntegralCompare<EqualityType::GREATER_EQ, cmp>;
 constexpr auto Exists = nullptr;
 constexpr auto NotEmpty = [] (const json& j) { return j.is_string() && j != ""; };
 constexpr auto IsBool = [] (const json& j) { return j.is_boolean(); };
+constexpr auto IsNumber = [] (const json& j) { return j.is_number(); };
+constexpr auto IsArray = [] (const json& j) { return j.is_array(); };
 
 }
 
