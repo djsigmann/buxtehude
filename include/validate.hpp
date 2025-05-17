@@ -53,7 +53,7 @@ enum class EqualityType
 };
 
 template<EqualityType eq, auto cmp>
-inline const Predicate IntegralCompare = [] (const json& j) -> bool
+constexpr auto IntegralCompare = [] (const json& j) -> bool
 {
     switch (eq) {
     case EqualityType::EQUAL: return j == cmp;
@@ -66,11 +66,11 @@ inline const Predicate IntegralCompare = [] (const json& j) -> bool
 };
 
 template<auto cmp>
-inline const Predicate GreaterEq = IntegralCompare<EqualityType::GREATER_EQ, cmp>;
+constexpr auto GreaterEq = IntegralCompare<EqualityType::GREATER_EQ, cmp>;
 
-inline const Predicate Exists = nullptr;
-inline const Predicate NotEmpty = [] (const json& j) { return j.is_string() && j != ""; };
-inline const Predicate IsBool = [] (const json& j) { return j.is_boolean(); };
+constexpr auto Exists = nullptr;
+constexpr auto NotEmpty = [] (const json& j) { return j.is_string() && j != ""; };
+constexpr auto IsBool = [] (const json& j) { return j.is_boolean(); };
 
 }
 
