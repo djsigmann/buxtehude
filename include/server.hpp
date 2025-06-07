@@ -49,12 +49,12 @@ public:
 
     // Try to read a message from the socket - only for INTERNET/UNIX
     tb::result<Message, ReadError> Read();
-private:
+
     Stream stream; // Only for UNIX/INTERNET
     std::time_t last_error = 0;
-public:
+
     std::vector<std::string> unavailable;
-    UEvent read_event;
+    UEvent read_event, write_event;
     Client* client_ptr = nullptr; // Only for INTERNAL connections
 
     ConnectionType conn_type;

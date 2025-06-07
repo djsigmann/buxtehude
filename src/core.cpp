@@ -62,27 +62,6 @@ void Initialise(LogCallback logcb, SignalHandler sigh)
 
 // Message struct functions
 
-std::string Message::Serialise(MessageFormat f) const
-{
-    json json_obj(*this);
-
-    switch (f) {
-    default:
-    case MessageFormat::JSON:
-        return json_obj.dump();
-    case MessageFormat::MSGPACK: {
-        std::string data;
-        // Despite the presence of \0 characters, to_msgpack will store all bytes of the
-        // MsgPack representation in the string object, and a call to size() will
-        // return the correct number of bytes.
-        // Choosing std::string as the return value simplifies this function and
-        // eliminates the need for unnecessary copy operations.
-        json::to_msgpack(json_obj, data);
-        return data;
-    }
-    }
-}
-
 Message Message::Deserialise(MessageFormat f, std::string_view data)
 {
     switch (f) {
@@ -93,15 +72,38 @@ Message Message::Deserialise(MessageFormat f, std::string_view data)
     }
 }
 
-bool Message::WriteToStream(FILE* stream, const Message& message, MessageFormat f)
+auto Message::WriteToStream(Stream& stream, const Message& message, MessageFormat f)
+-> tb::error<int>
 {
-    std::string data = message.Serialise(f);
-    uint32_t len = data.size();
-    fwrite(&f, sizeof(MessageFormat), 1, stream);
-    fwrite(&len, sizeof(uint32_t), 1, stream);
-    fwrite(data.data(), len, 1, stream);
+    constexpr size_t HEADER_SIZE = sizeof(uint32_t) + sizeof(MessageFormat);
 
-    return !fflush(stream);
+    json object = message;
+    switch (f) {
+    case MessageFormat::JSON: {
+        // nlohmann JSON does not offer a function for parsing JSON & writing through
+        // an output adapter.
+        std::string data = object.dump();
+        uint32_t msg_len = data.size();
+
+        data.insert(data.begin(), HEADER_SIZE, '\0');
+        memcpy(data.data(), &f, sizeof(MessageFormat));
+        memcpy(data.data() + sizeof(MessageFormat), &msg_len, sizeof(uint32_t));
+
+        return stream.TryWrite(data);
+    }
+    case MessageFormat::MSGPACK: {
+        std::vector<uint8_t> data;
+        data.reserve(1024);
+        data.insert(data.begin(), HEADER_SIZE, '\0');
+        json::to_msgpack(object, data);
+
+        uint32_t msg_len = data.size() - HEADER_SIZE;
+        memcpy(data.data(), &f, sizeof(MessageFormat));
+        memcpy(data.data() + sizeof(MessageFormat), &msg_len, sizeof(uint32_t));
+
+        return stream.TryWrite(data);
+    }
+    }
 }
 
 namespace callbacks
@@ -126,12 +128,13 @@ void ConnectionCallback(evconnlistener* listener, evutil_socket_t fd,
     evconnlistener_disable(listener);
 }
 
-void ReadCallback(evutil_socket_t fd, short what, void* data)
+void ReadWriteCallback(evutil_socket_t fd, short what, void* data)
 {
     auto* ecdata = static_cast<EventCallbackData*>(data);
 
     ecdata->fd = fd;
     if (what & EV_READ) ecdata->type = EventType::READ_READY;
+    else if (what & EV_WRITE) ecdata->type = EventType::WRITE_READY;
     else if (what & EV_TIMEOUT) ecdata->type = EventType::TIMEOUT;
 
     event_base_loopbreak(ecdata->ebase);

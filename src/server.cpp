@@ -22,6 +22,7 @@ ClientHandle::ClientHandle(ConnectionType conn_type, FILE* ptr, uint32_t max_msg
     : conn_type(conn_type)
 {
     stream.file = ptr;
+    setvbuf(stream.file, nullptr, _IONBF, 0);
     stream.Await<MessageFormat>().Await<uint32_t>()
           .Then([this, max_msg_len] (Stream& s, Field& f) {
         auto type = f[-1].Get<MessageFormat>();
@@ -62,9 +63,14 @@ tb::error<WriteError> ClientHandle::Write(const Message& msg)
 
     if (conn_type == ConnectionType::INTERNAL) {
         client_ptr->Internal_Receive(msg);
-    } else if (!Message::WriteToStream(stream.file, msg, preferences.format)) {
-        return WriteError {};
+        return tb::ok;
     }
+
+    clearerr(stream.file);
+
+    Message::WriteToStream(stream, msg, preferences.format).if_err([&] (int) {
+        event_add(write_event.get(), nullptr);
+    });
 
     return tb::ok;
 }
@@ -445,6 +451,15 @@ void Server::Listen()
         }
         case EventType::INTERRUPT:
             return;
+        case EventType::WRITE_READY:
+            std::lock_guard<std::mutex> guard(clients_mutex);
+            Server::HandleIter iter = GetClientBySocket(callback_data.fd);
+            if (iter == clients.end()) break;
+
+            iter->stream.Flush().if_err([&] (int) {
+                event_add(iter->write_event.get(), nullptr);
+            });
+            break;
         }
     }
 }
@@ -452,6 +467,10 @@ void Server::Listen()
 void Server::AddConnection(int fd, sa_family_t addr_family)
 {
     FILE* stream = fdopen(fd, "r+");
+
+    setvbuf(stream, nullptr, _IONBF, 0);
+    int flags = fcntl(fd, F_GETFL);
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 
     ConnectionType conn_type;
     std::string_view debug_string;
@@ -474,7 +493,12 @@ void Server::AddConnection(int fd, sa_family_t addr_family)
 
     handle_ref.read_event = make<UEvent>(
         event_new(ebase.get(), fd, EV_PERSIST | EV_READ,
-                  callbacks::ReadCallback, &callback_data)
+                  callbacks::ReadWriteCallback, &callback_data)
+    );
+
+    handle_ref.write_event = make<UEvent>(
+        event_new(ebase.get(), fd, EV_WRITE,
+                  callbacks::ReadWriteCallback, static_cast<void*>(&callback_data))
     );
 
     event_add(handle_ref.read_event.get(), &callbacks::DEFAULT_TIMEOUT);

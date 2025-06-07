@@ -18,6 +18,9 @@
 #include <fmt/core.h>
 
 #include "validate.hpp"
+#include "io.hpp"
+
+#include <fcntl.h>
 
 namespace buxtehude
 {
@@ -49,7 +52,8 @@ enum class MessageFormat : uint8_t { JSON = 0, MSGPACK = 1 };
 
 enum class EventType
 {
-    NEW_CONNECTION, READ_READY, TIMEOUT, INTERRUPT, INTERNAL_READ_READY
+    NEW_CONNECTION, READ_READY, TIMEOUT, INTERRUPT, INTERNAL_READ_READY,
+    WRITE_READY
 };
 
 enum class ConnectErrorType
@@ -137,9 +141,9 @@ struct Message
     json content;
     bool only_first = false;
 
-    std::string Serialise(MessageFormat f) const;
     static Message Deserialise(MessageFormat f, std::string_view data);
-    static bool WriteToStream(FILE* stream, const Message& m, MessageFormat f);
+    static auto WriteToStream(Stream& stream, const Message& m, MessageFormat f)
+    -> tb::error<int>;
 };
 
 void to_json(json& j, const Message& msg);
@@ -198,7 +202,7 @@ constexpr timeval DEFAULT_TIMEOUT = { 60, 0 };
 void ConnectionCallback(evconnlistener* listener, evutil_socket_t fd,
                         sockaddr* addr, int addr_len, void* data);
 
-void ReadCallback(evutil_socket_t fd, short what, void* data);
+void ReadWriteCallback(evutil_socket_t fd, short what, void* data);
 
 void LoopInterruptCallback(evutil_socket_t fd, short what, void* data);
 

@@ -58,13 +58,14 @@ tb::error<ConnectError> Client::IPConnect(std::string_view hostname, uint16_t po
         return ConnectError { ConnectErrorType::CONNECT_ERROR, errno };
     }
 
+    connected = true;
+
     if (SetupEvents().is_error())
         return ConnectError { ConnectErrorType::LIBEVENT_ERROR };
 
     if (Handshake().is_error())
         return ConnectError { ConnectErrorType::WRITE_ERROR };
 
-    connected = true;
     StartListening();
 
     return tb::ok;
@@ -94,13 +95,14 @@ tb::error<ConnectError> Client::UnixConnect(std::string_view path)
         return ConnectError { ConnectErrorType::CONNECT_ERROR, errno };
     }
 
+    connected = true;
+
     if (SetupEvents().is_error())
         return ConnectError { ConnectErrorType::LIBEVENT_ERROR };
 
     if (Handshake().is_error())
         return ConnectError { ConnectErrorType::WRITE_ERROR };
 
-    connected = true;
     StartListening();
 
     return tb::ok;
@@ -114,6 +116,7 @@ tb::error<ConnectError> Client::InternalConnect(Server& server)
 
     server_ptr = &server;
     server.Internal_AddClient(*this);
+    connected = true;
 
     // This can only fail if the server closes between the AddClient call and
     // trying to write for the handshake.
@@ -122,7 +125,6 @@ tb::error<ConnectError> Client::InternalConnect(Server& server)
         return ConnectError { ConnectErrorType::WRITE_ERROR };
     }
 
-    connected = true;
     StartListening();
 
     return tb::ok;
@@ -132,14 +134,19 @@ tb::error<ConnectError> Client::InternalConnect(Server& server)
 
 tb::error<WriteError> Client::Write(const Message& msg)
 {
+    if (!connected) return WriteError {};
+
     if (conn_type == ConnectionType::INTERNAL) {
         if (!server_ptr) return WriteError {};
         server_ptr.load()->Internal_ReceiveFrom(*this, msg);
-    } else if (!Message::WriteToStream(stream.file, msg, preferences.format)) {
-        logger(LogLevel::WARNING, "Failed to write - closing connection");
-        Disconnect();
-        return WriteError {};
+        return tb::ok;
     }
+
+    clearerr(stream.file);
+
+    Message::WriteToStream(stream, msg, preferences.format).if_err([&] (int) {
+        event_add(write_event.get(), nullptr);
+    });
 
     return tb::ok;
 }
@@ -271,7 +278,12 @@ tb::error<AllocError> Client::SetupEvents()
 
     read_event = make<UEvent>(
         event_new(ebase.get(), client_socket, EV_PERSIST | EV_READ,
-                  callbacks::ReadCallback, static_cast<void*>(&callback_data))
+                  callbacks::ReadWriteCallback, static_cast<void*>(&callback_data))
+    );
+
+    write_event = make<UEvent>(
+        event_new(ebase.get(), client_socket, EV_WRITE,
+                  callbacks::ReadWriteCallback, static_cast<void*>(&callback_data))
     );
 
     interrupt_event = make<UEvent>(
@@ -279,7 +291,7 @@ tb::error<AllocError> Client::SetupEvents()
                   callbacks::LoopInterruptCallback, &callback_data)
     );
 
-    if (!ebase || !read_event || !interrupt_event) {
+    if (!ebase || !read_event || !write_event || !interrupt_event) {
         logger(LogLevel::WARNING, "Failed to create one or more libevent structures");
         return AllocError {};
     }
@@ -287,6 +299,11 @@ tb::error<AllocError> Client::SetupEvents()
     event_add(read_event.get(), &callbacks::DEFAULT_TIMEOUT);
 
     stream.file = fdopen(client_socket, "r+");
+
+    setvbuf(stream.file, nullptr, _IONBF, 0);
+    int flags = fcntl(client_socket, F_GETFL);
+    fcntl(client_socket, F_SETFL, flags | O_NONBLOCK);
+
     stream.ClearFields();
     stream.Await<MessageFormat>().Await<uint32_t>()
           .Then([this] (Stream& stream, Field& f) {
@@ -336,6 +353,11 @@ void Client::Listen()
             break;
         case EventType::INTERRUPT:
             return;
+        case EventType::WRITE_READY:
+            stream.Flush().if_err([&] (int) {
+                event_add(write_event.get(), nullptr);
+            });
+            break;
         default:
             break;
         }

@@ -8,6 +8,8 @@
 #include <string_view>
 #include <ranges>
 
+#include "tb.hpp"
+
 namespace buxtehude
 {
 
@@ -103,11 +105,51 @@ public:
 
     Field& operator[](int offset);
 
+    template<std::ranges::contiguous_range ByteRange>
+        requires (sizeof(std::ranges::range_value_t<ByteRange>) == 1
+        && std::integral<std::ranges::range_value_t<ByteRange>>)
+    tb::error<int> TryWrite(ByteRange&& src)
+    {
+        if (!output_buffer.empty()) {
+            output_buffer.insert(output_buffer.end(), std::begin(src), std::end(src));
+
+            size_t bytes_to_write = output_buffer.size();
+            size_t bytes_written = fwrite(output_buffer.data(), 1, bytes_to_write, file);
+
+            output_buffer.erase(output_buffer.begin(),
+                output_buffer.begin() + bytes_written);
+        } else {
+            size_t bytes_written = fwrite(std::data(src), 1, std::size(src), file);
+
+            output_buffer.insert(output_buffer.end(),
+                std::begin(src) + bytes_written,
+                std::end(src));
+        }
+
+        if (output_buffer.size())
+            return errno;
+        else
+            return tb::ok;
+    }
+
+    tb::error<int> Flush()
+    {
+        size_t bytes_written
+            = fwrite(output_buffer.data(), 1, output_buffer.size(), file);
+
+        output_buffer.erase(output_buffer.begin(), output_buffer.begin() + bytes_written);
+        if (output_buffer.size())
+            return errno;
+        else
+            return tb::ok;
+    }
+
     FILE* file = nullptr;
 private:
     Callback finally;
 
     std::list<Field> fields, deleted;
+    std::vector<uint8_t> output_buffer;
     FieldIterator current = fields.end();
     size_t data_offset = 0;
     StreamStatus status = StreamStatus::OKAY;

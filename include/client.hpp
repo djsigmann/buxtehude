@@ -76,7 +76,7 @@ private:
 
     // Libevent internals
     UEventBase ebase;
-    UEvent read_event, interrupt_event;
+    UEvent read_event, interrupt_event, write_event;
 
     EventCallbackData callback_data;
 };
