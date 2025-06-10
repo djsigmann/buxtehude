@@ -11,7 +11,7 @@ Buxtehude messages shall be transmitted over a byte-stream in the following form
 Field|Length|Description
 ---|---|---
 Format|1 byte|`0x00` = JSON, `0x01` = MessagePack
-Length|4 bytes|Length of the message in bytes (x)
+Length|4 bytes|Length of the message in bytes, little-endian (x)
 Content|x bytes|Valid JSON or MessagePack
 
 ### Message fields
